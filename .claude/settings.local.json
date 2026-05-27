@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(gsd-update)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "mcp__plugin_github_github__get_file_contents",
+      "WebSearch",
+      "Bash(Get-ChildItem \"C:\\\\Users\\\\13080052518\\\\.claude\\\\skills\" -Directory)",
+      "Bash(Select-Object -ExpandProperty Name)",
+      "WebFetch(domain:zhuanlan.zhihu.com)",
+      "Bash(Get-ChildItem -Force)",
+      "Bash(Select-Object Name, Mode)"
+    ]
+  }
+}

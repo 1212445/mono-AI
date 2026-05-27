@@ -1,0 +1,11 @@
+{
+  "extends": "@rag/ts/tsconfig",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src/**/*"]
+}
