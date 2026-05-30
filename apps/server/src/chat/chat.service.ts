@@ -77,7 +77,9 @@ export class ChatService {
   }
 
   async findBySessionId(sessionId: string) {
-    return await this.chatHistoryService.getHistoryBySessionId(sessionId);
+    const records =
+      await this.chatHistoryService.getHistoryBySessionId(sessionId);
+    return { data: records };
   }
 
   async remove() {

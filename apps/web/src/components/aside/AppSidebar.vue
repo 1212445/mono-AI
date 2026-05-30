@@ -5,7 +5,7 @@ import {
   GalleryVerticalEnd,
   History,
   MessageSquarePlus,
-  Settings,
+  FileMinus,
 } from "lucide-vue-next";
 import NavMain from "@/components/aside/NavMain.vue";
 import NavUser from "@/components/aside/NavUser.vue";
@@ -45,9 +45,9 @@ const data = {
       isActive: true,
     },
     {
-      title: "设置",
-      url: "/settings",
-      icon: Settings,
+      title: "知识库",
+      url: "/kb",
+      icon: FileMinus,
     },
     {
       title: "历史记录",

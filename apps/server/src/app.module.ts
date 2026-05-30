@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ChatModule } from './chat/chat.module';
 import { ChatHistoryModule } from './chat-history/chat-history.module';
+import { FileManagementModule } from './file-management/file-management.module';
 
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ChatHistory } from './chat-history/chat-history.entity';
+import { FileManagement } from './file-management/file-management.entity';
 
 @Module({
   imports: [
@@ -22,12 +24,13 @@ import { ChatHistory } from './chat-history/chat-history.entity';
         username: configService.get<string>('db_user'),
         password: configService.get<string>('db_password'),
         database: configService.get<string>('db_database'),
-        entities: [ChatHistory],
+        entities: [ChatHistory, FileManagement],
         synchronize: true,
       }),
     }),
     ChatModule,
     ChatHistoryModule,
+    FileManagementModule,
   ],
   controllers: [],
   providers: [],

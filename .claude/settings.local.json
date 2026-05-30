@@ -1,29 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Skill(gsd-update)",
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "mcp__plugin_github_github__get_file_contents",
+      "mcp__mcp_server_mysql__mysql_query",
+      "Skill(shadcn-vue)",
+      "Bash(npx shadcn-vue@latest docs sonner)",
+      "WebFetch(domain:shadcn-vue.com)",
       "WebSearch",
-      "Bash(Get-ChildItem \"C:\\\\Users\\\\13080052518\\\\.claude\\\\skills\" -Directory)",
-      "Bash(Select-Object -ExpandProperty Name)",
-      "WebFetch(domain:zhuanlan.zhihu.com)",
-      "Bash(Get-ChildItem -Force)",
-      "Bash(Select-Object Name, Mode)",
-      "Bash(npx skills *)",
-      "WebFetch(domain:www.baidu.com)",
-      "WebFetch(domain:www.google.com)",
-      "WebFetch(domain:github.com)",
-      "Skill(tavily-search)",
-      "PowerShell(tvly *)",
-      "PowerShell(tvly search *)",
-      "PowerShell(chcp 65001 *)",
-      "PowerShell($PROFILE)",
-      "PowerShell(Get-ChildItem *)",
-      "PowerShell(pip show *)",
-      "PowerShell(Test-Path *)",
-      "mcp__docs-langchain__search_docs_by_lang_chain",
-      "mcp__docs-langchain__query_docs_filesystem_docs_by_lang_chain"
+      "WebFetch(domain:vue-sonner.monster)"
     ]
   },
   "enableAllProjectMcpServers": true,

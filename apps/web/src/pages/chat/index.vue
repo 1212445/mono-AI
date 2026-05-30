@@ -2,6 +2,7 @@
 import AppSidebar from "@/components/aside/AppSidebar.vue";
 import MarkdownRenderer from "@/components/markdown/index.vue";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft,
   Copy,
@@ -102,7 +103,7 @@ const socket = async (
       const { done, value } = await reader.read();
       if (done) break;
       const chunk = decoder.decode(value, { stream: true });
-      console.log("chunk是",chunk)
+      console.log("chunk是", chunk);
       const lines = chunk.split("\n");
       for (const line of lines) {
         if (line.startsWith("data: ")) {
@@ -312,6 +313,10 @@ const handleRemoveFile = () => {
           >
             <ArrowLeft class="h-5 w-5" />
           </button>
+          <Separator
+            orientation="vertical"
+            class="mr-2 data-[orientation=vertical]:h-4"
+          />
           <div class="flex flex-col">
             <span class="text-sm font-medium text-foreground">{{
               chatTitle
@@ -370,7 +375,10 @@ const handleRemoveFile = () => {
                     v-if="message.role === 'assistant'"
                     :content="message.content"
                   />
-                  <p v-else class="text-sm md:text-base leading-relaxed whitespace-pre-wrap">
+                  <p
+                    v-else
+                    class="text-sm md:text-base leading-relaxed whitespace-pre-wrap"
+                  >
                     {{ message.content }}
                   </p>
                 </div>

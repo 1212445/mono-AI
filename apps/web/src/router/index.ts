@@ -13,6 +13,11 @@ const routes = [
     name: "chat",
     component: chat,
   },
+  {
+    path: "/kb",
+    name: "kb",
+    component: () => import("@/pages/kb/index.vue")
+  }
 ];
 
 const router = createRouter({
