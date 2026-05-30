@@ -20,3 +20,4 @@ coverage
 .idea
 *.tsbuildinfo
 apps/server/src/upload/*
+docs

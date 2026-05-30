@@ -9,7 +9,25 @@
       "Bash(Select-Object -ExpandProperty Name)",
       "WebFetch(domain:zhuanlan.zhihu.com)",
       "Bash(Get-ChildItem -Force)",
-      "Bash(Select-Object Name, Mode)"
+      "Bash(Select-Object Name, Mode)",
+      "Bash(npx skills *)",
+      "WebFetch(domain:www.baidu.com)",
+      "WebFetch(domain:www.google.com)",
+      "WebFetch(domain:github.com)",
+      "Skill(tavily-search)",
+      "PowerShell(tvly *)",
+      "PowerShell(tvly search *)",
+      "PowerShell(chcp 65001 *)",
+      "PowerShell($PROFILE)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(pip show *)",
+      "PowerShell(Test-Path *)",
+      "mcp__docs-langchain__search_docs_by_lang_chain",
+      "mcp__docs-langchain__query_docs_filesystem_docs_by_lang_chain"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "docs-langchain"
+  ]
 }
