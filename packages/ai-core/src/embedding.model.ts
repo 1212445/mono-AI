@@ -6,6 +6,5 @@ export function embedding() {
     //dimensions: 1024,
     baseUrl: "http://localhost:11434",
   });
-  
   return embedding
 }

@@ -13,6 +13,5 @@ export function model() {
       },
     },
   });
-
   return llm
 }

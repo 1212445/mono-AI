@@ -109,7 +109,6 @@ export async function loading(fileName: string): Promise<Document[]> {
   const ext = extname(fileName).toLowerCase();
 
   let loader;
-
   switch (ext) {
     case ".pdf":
       loader = new PDFLoader(filePath);

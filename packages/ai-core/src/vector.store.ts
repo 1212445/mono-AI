@@ -28,25 +28,6 @@ export async function vectorStore(
   return vectorStore;
 }
 
-//判定文件是否存在数据库中（感觉不需要）
-export async function docsExisting(docs: Document[]): Promise<boolean> {
-  const client = new MilvusClient({
-    address: "http://localhost:19530",
-  });
-  const filename = docs[0]?.metadata.fileName;
-    // 加载集合
-  await client.loadCollection({
-    collection_name: "my_docs",
-  });
-  const existing = await client.query({
-    collection_name: "my_docs",
-    expr: `fileName == "${filename}"`,
-    output_fields: ["langchain_primaryid"],
-    limit: 1,
-  });
-  return existing.data.length > 0 ? true : false;
-}
-
 /**
  * 清空集合
  * @param collectionName 集合名
