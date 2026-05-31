@@ -13,7 +13,7 @@ import { ChatService } from './chat.service';
 import { ChatDto } from './dto/chat.dto';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
-import { diskStorage } from 'multer';
+import { memoryStorage } from 'multer';
 
 @Controller('chat')
 export class ChatController {
@@ -25,16 +25,7 @@ export class ChatController {
   @Header('Connection', 'keep-alive') // 保持连接
   @UseInterceptors(
     FileFieldsInterceptor([{ name: 'files', maxCount: 5 }], {
-      storage: diskStorage({
-        destination: './src/upload',
-        filename: (req, file, cb) => {
-          const originalName = Buffer.from(
-            file.originalname,
-            'latin1',
-          ).toString('utf8');
-          cb(null, originalName);
-        },
-      }),
+      storage: memoryStorage(),
     }),
   )
   async chat(

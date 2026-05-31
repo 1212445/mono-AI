@@ -5,11 +5,9 @@ import {
   retrieveDocuments,
   generateAnswer,
   chat,
-  loading,
-  splitDocs,
-  vectorStore,
   dropCollection,
 } from '@rag/ai-core';
+import { extractFileContent } from 'src/utils/file.util';
 import { ChatHistoryService } from '../chat-history/chat-history.service';
 import { ChatDto } from './dto/chat.dto';
 import { Response } from 'express';
@@ -28,13 +26,12 @@ export class ChatService {
     const currentSessionId = sessionId || this.generateSessionId();
     const llm = model();
     const embeddingModel = embedding();
-
+    let fileContext = '';
     if (files && files.length > 0) {
-      for (const file of files) {
-        const fileName = file.filename;
-        const docs = await loading(fileName);
-        const splitDocuments = await splitDocs(docs);
-        await vectorStore(splitDocuments, embeddingModel);
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index];
+        const content = await extractFileContent(file);
+        fileContext += `\n--- 文件${index + 1}: ${file.originalname} ---\n${content}\n`;
       }
     }
 
@@ -51,14 +48,19 @@ export class ChatService {
 
     if (modeNumber === 2) {
       const context = await retrieveDocuments(question, 3, llm, embeddingModel);
-      console.log(context);
-      const answer = generateAnswer(question, context, llm, history);
+      const answer = generateAnswer(
+        question,
+        context,
+        llm,
+        history,
+        fileContext,
+      );
       for await (const chunk of answer) {
         fullAnswer += chunk;
         res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
       }
     } else {
-      const answer = chat(llm, question, history);
+      const answer = chat(llm, question, history, fileContext);
       for await (const chunk of answer) {
         fullAnswer += chunk;
         res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
