@@ -4,16 +4,17 @@ import { extname } from "node:path";
 import {
   RecursiveCharacterTextSplitter,
   MarkdownTextSplitter,
-  TokenTextSplitter
+  TokenTextSplitter,
 } from "@langchain/textsplitters";
+import { index } from "@langchain/core/indexing";
 
 /**
- * 
+ *
  * @param docs 数据清洗后的文档
  * @returns 切割后的 chunks
  */
 export async function splitDocs(docs: Document[]): Promise<Document[]> {
-  const ext = extname(docs[0]?.metadata.source).toLowerCase();
+  const ext = docs[0]?.metadata.ext.toLowerCase();
   let splitter;
   if (ext == ".md") {
     splitter = new MarkdownTextSplitter({
@@ -27,5 +28,9 @@ export async function splitDocs(docs: Document[]): Promise<Document[]> {
     });
   }
   const chunks = await splitter.splitDocuments(docs);
+  chunks.forEach((chunk, index) => {
+    chunk.metadata.chunkIndex = index;
+    chunk.metadata.totalChunks = chunks.length;
+  });
   return chunks;
 }

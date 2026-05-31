@@ -104,7 +104,7 @@ function cleanDocs(docs: Document[], ext: string): Document[] {
  * @param fileName 文件名
  * @returns
  */
-export async function loading(fileName: string): Promise<Document[]> {
+export async function loading(fileName: string,uniqueId: string,createdTime:Date): Promise<Document[]> {
   const filePath = join(DOCS_DIR, fileName);
   const ext = extname(fileName).toLowerCase();
 
@@ -133,6 +133,10 @@ export async function loading(fileName: string): Promise<Document[]> {
   const fileBaseName = basename(fileName, ext);
   cleanedDocs.forEach((doc) => {
     doc.metadata.fileName = fileBaseName;
+    doc.metadata.ext = ext;
+    doc.metadata.uniqueId = uniqueId;
+    doc.metadata.createdTime = createdTime;
+    doc.metadata.source = filePath;
   });
   return cleanedDocs;
 }

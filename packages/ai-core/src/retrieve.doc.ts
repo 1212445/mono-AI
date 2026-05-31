@@ -28,7 +28,7 @@ export async function retrieveDocuments(
   //1 构建向量查询
   const vectorStore = await Milvus.fromExistingCollection(embedding, {
     url: "http://localhost:19530",
-    collectionName: "my_docs",
+    collectionName: "mono_docs",
     textField: "pageContent",
   });
 
@@ -44,7 +44,7 @@ export async function retrieveDocuments(
   });
 
   const allDocsFromDb = await client.query({
-    collection_name: "my_docs",
+    collection_name: "mono_docs",
     limit: 1000,
     output_fields: ["pageContent"],
   });

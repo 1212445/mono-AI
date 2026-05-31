@@ -6,7 +6,10 @@
       "Bash(npx shadcn-vue@latest docs sonner)",
       "WebFetch(domain:shadcn-vue.com)",
       "WebSearch",
-      "WebFetch(domain:vue-sonner.monster)"
+      "WebFetch(domain:vue-sonner.monster)",
+      "mcp__docs-langchain__query_docs_filesystem_docs_by_lang_chain",
+      "mcp__docs-langchain__search_docs_by_lang_chain",
+      "Bash(npx skills *)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -3,8 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { FileManagement } from './file-management.entity';
 import { createHash } from 'crypto';
-import { createReadStream } from 'fs';
+import { createReadStream, unlinkSync, existsSync } from 'fs';
 import { ConflictException, NotFoundException } from '@nestjs/common';
+import { embedding, loading, splitDocs, vectorStore } from '@rag/ai-core';
 
 @Injectable()
 export class FileManagementService {
@@ -21,14 +22,24 @@ export class FileManagementService {
     if (existing) {
       throw new ConflictException('文件已存在');
     }
+    const time = new Date();
     const newFile = this.fileManagementRepository.create({
       fileName: Buffer.from(file.originalname, 'latin1').toString('utf8'),
       filePath: file.path,
       size: String(file.size),
       uniqueId,
-      createdTime: new Date(),
+      createdTime: time,
     });
-    const saved = await this.fileManagementRepository.save(newFile);
+    const fileName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    const [saved] = await Promise.all([
+      this.fileManagementRepository.save(newFile),
+      (async () => {
+        const docs = await loading(fileName, uniqueId, time);
+        const splitDocuments = await splitDocs(docs);
+        const embeddingModel = embedding();
+        await vectorStore(splitDocuments, embeddingModel);
+      })(),
+    ]);
     return { message: '上传成功', data: saved };
   }
 
@@ -43,6 +54,9 @@ export class FileManagementService {
     const file = await this.fileManagementRepository.findOne({ where: { id } });
     if (!file) {
       throw new NotFoundException('文件不存在');
+    }
+    if (existsSync(file.filePath)) {
+      unlinkSync(file.filePath);
     }
     await this.fileManagementRepository.delete(id);
     return { message: '删除成功' };
