@@ -22,63 +22,58 @@ import { useChatStore } from "@/store";
 import { computed } from "vue";
 
 const chatStore = useChatStore();
-const list = computed(() =>
-  chatStore.allSession.map((s) => ({
-    title: s.title,
-    url: `/chat/${s.sessionId}`,
-  })),
-);
 
 const props = withDefaults(defineProps<SidebarProps>(), {
   collapsible: "icon",
 });
 
-// This is sample data.
-const data = {
-  user: {
-    name: "开发者",
-    email: "djy123123aa@outlook.com",
-    avatar: "/avatars/shadcn.jpg",
+const teams = [
+  {
+    name: "Mono AI",
+    logo: GalleryVerticalEnd,
+    plan: "简单指令,无限可能",
   },
-  teams: [
-    {
-      name: "Mono AI",
-      logo: GalleryVerticalEnd,
-      plan: "简单指令，无限可能",
-    },
-  ],
-  navMain: [
-    {
-      title: "新对话",
-      url: "/",
-      icon: MessageSquarePlus,
-      isActive: true,
-    },
-    {
-      title: "知识库",
-      url: "/kb",
-      icon: FileMinus,
-    },
-    {
-      title: "历史记录",
-      url: "#",
-      icon: History,
-      children: list,
-    },
-  ],
+];
+
+const user = {
+  name: "开发者",
+  email: "djy123123aa@outlook.com",
+  avatar: "/avatars/shadcn.jpg",
 };
+
+const navMain = computed(() => [
+  {
+    title: "新对话",
+    url: "/",
+    icon: MessageSquarePlus,
+    isActive: true,
+  },
+  {
+    title: "知识库",
+    url: "/kb",
+    icon: FileMinus,
+  },
+  {
+    title: "历史记录",
+    icon: History,
+    children: chatStore.allSession.map((s) => ({
+      title: s.title,
+      url: `/chat/${s.sessionId}`,
+    })),
+  },
+]);
 </script>
 
 <template>
   <Sidebar v-bind="props">
     <SidebarHeader>
-      <TeamSwitcher :teams="data.teams" />
+      <TeamSwitcher :teams="teams" />
     </SidebarHeader>
     <SidebarContent>
-      <NavMain :items="data.navMain" />
+      <NavMain :items="navMain" />
     </SidebarContent>
     <SidebarFooter>
-      <NavUser :user="data.user" />
+      <NavUser :user="user" />
     </SidebarFooter>
     <SidebarRail />
   </Sidebar>

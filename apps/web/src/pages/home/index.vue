@@ -7,9 +7,8 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Sparkles, Building2, FileText, PanelLeft } from "lucide-vue-next";
-import { onMounted, ref } from "vue";
+import { ref } from "vue";
 import { useRouter } from "vue-router";
-import server from "@/utils/axios.config";
 import ChatInput from "@/components/input/index.vue";
 import { useChatStore } from "@/store";
 
@@ -72,22 +71,6 @@ const handleAttach = (files: File[]) => {
 const handleRemoveFile = () => {
   selectedFiles.value = [];
 };
-
-onMounted(async () => {
-  const res = await server.get("/chat/findAll");
-  chatStore.allSession = res.data.data.map(
-    (item: {
-      id: number;
-      sessionId: string;
-      title: string;
-      lastActiveTime: string;
-    }) => ({
-      sessionId: item.sessionId,
-      title: item.title,
-      lastActiveTime: item.lastActiveTime,
-    }),
-  );
-});
 </script>
 
 <template>

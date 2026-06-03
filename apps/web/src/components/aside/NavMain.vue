@@ -66,9 +66,9 @@ const handleClick = (url: string) => {
                   :key="subItem.title"
                 >
                   <SidebarMenuSubButton as-child>
-                    <a :href="subItem.url">
+                    <router-link :to="subItem.url">
                       <span>{{ subItem.title }}</span>
-                    </a>
+                    </router-link>
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>
               </SidebarMenuSub>
