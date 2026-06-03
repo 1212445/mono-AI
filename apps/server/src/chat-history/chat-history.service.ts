@@ -16,13 +16,14 @@ export class ChatHistoryService {
     question: string,
     answer: string,
     mode: number,
+    createdTime: Date,
   ): Promise<ChatHistory> {
     const chatHistory = this.chatHistoryRepository.create({
       sessionId,
       question,
       answer,
       mode,
-      createdTime: new Date(),
+      createdTime,
     });
     return this.chatHistoryRepository.save(chatHistory);
   }

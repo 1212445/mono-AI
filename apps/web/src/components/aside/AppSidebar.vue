@@ -18,6 +18,16 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { useChatStore } from "@/store";
+import { computed } from "vue";
+
+const chatStore = useChatStore();
+const list = computed(() =>
+  chatStore.allSession.map((s) => ({
+    title: s.title,
+    url: `/chat/${s.sessionId}`,
+  })),
+);
 
 const props = withDefaults(defineProps<SidebarProps>(), {
   collapsible: "icon",
@@ -51,8 +61,9 @@ const data = {
     },
     {
       title: "历史记录",
-      url: "/history",
+      url: "#",
       icon: History,
+      children: list,
     },
   ],
 };

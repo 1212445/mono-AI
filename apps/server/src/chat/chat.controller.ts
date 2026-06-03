@@ -37,6 +37,11 @@ export class ChatController {
     return this.chatService.chat(chatDto, res, files);
   }
 
+  @Get('findAll')
+  async findAllSessionId() {
+    return this.chatService.findAllSessionId();
+  }
+
   @Get('/:id')
   async findBySessionId(@Param('id') sessionId: string) {
     return await this.chatService.findBySessionId(sessionId);

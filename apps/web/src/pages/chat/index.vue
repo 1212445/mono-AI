@@ -9,6 +9,7 @@ import {
   ThumbsUp,
   ThumbsDown,
   MoreHorizontal,
+  Brain,
 } from "lucide-vue-next";
 import { ref, onMounted, nextTick, computed } from "vue";
 import { useRouter } from "vue-router";
@@ -378,8 +379,8 @@ const handleRemoveFile = () => {
                         @click="block.showThink = !block.showThink"
                         class="text-xs text-muted-foreground hover:text-foreground mb-1 flex items-center gap-1"
                       >
-                        <span>{{ block.showThink ? "▼" : "▶" }}</span>
-                        <span>思考过程</span>
+                        <span><Brain /></span>
+                        <span>思考</span>
                       </button>
                       <div
                         v-show="block.showThink"

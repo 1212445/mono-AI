@@ -10,12 +10,16 @@ import {
 } from '@rag/ai-core';
 import { extractFileContent } from 'src/utils/file.util';
 import { ChatHistoryService } from '../chat-history/chat-history.service';
+import { ChatSessionService } from '../chat-session/chat-session.service';
 import { ChatDto } from './dto/chat.dto';
 import { Response } from 'express';
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly chatHistoryService: ChatHistoryService) {}
+  constructor(
+    private readonly chatHistoryService: ChatHistoryService,
+    private readonly chatSessionService: ChatSessionService,
+  ) {}
 
   async chat(
     chatDto: ChatDto,
@@ -27,6 +31,7 @@ export class ChatService {
     const currentSessionId = sessionId || this.generateSessionId();
     const llm = model();
     const embeddingModel = embedding();
+    const date = new Date();
     let fileContext = '';
     if (files && files.length > 0) {
       for (let index = 0; index < files.length; index++) {
@@ -35,7 +40,12 @@ export class ChatService {
         fileContext += `\n--- 文件${index + 1}: ${file.originalname} ---\n${content}\n`;
       }
     }
-
+    const tt = await this.findBySessionId(currentSessionId);
+    if (tt.data.length > 0) {
+      await this.chatSessionService.updated(currentSessionId, date);
+    } else {
+      await this.chatSessionService.updated(currentSessionId, date, question);
+    }
     const historyRecords =
       await this.chatHistoryService.getHistoryBySessionId(currentSessionId);
     const history: ChatHistory[] = historyRecords.map((item) => ({
@@ -74,6 +84,7 @@ export class ChatService {
       question,
       fullAnswer,
       modeNumber,
+      date,
     );
 
     res.write('data: [DONE]\n\n');
@@ -84,6 +95,11 @@ export class ChatService {
     const records =
       await this.chatHistoryService.getHistoryBySessionId(sessionId);
     return { data: records };
+  }
+
+  async findAllSessionId() {
+    const data = await this.chatSessionService.findAll();
+    return { data: data };
   }
 
   async remove() {

@@ -7,6 +7,8 @@ import { FileManagementModule } from './file-management/file-management.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ChatHistory } from './chat-history/chat-history.entity';
 import { FileManagement } from './file-management/file-management.entity';
+import { ChatSession } from './chat-session/chat-session.entity';
+import { ChatSessionModule } from './chat-session/chat-session.module';
 
 @Module({
   imports: [
@@ -24,13 +26,14 @@ import { FileManagement } from './file-management/file-management.entity';
         username: configService.get<string>('db_user'),
         password: configService.get<string>('db_password'),
         database: configService.get<string>('db_database'),
-        entities: [ChatHistory, FileManagement],
+        entities: [ChatHistory, FileManagement, ChatSession],
         synchronize: true,
       }),
     }),
     ChatModule,
     ChatHistoryModule,
     FileManagementModule,
+    ChatSessionModule,
   ],
   controllers: [],
   providers: [],

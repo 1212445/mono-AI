@@ -3,6 +3,12 @@ import { ref } from "vue";
 
 export const pinia = createPinia();
 
+interface session {
+  sessionId: string;
+  title: string;
+  lastActiveTime: Date;
+}
+
 export const useChatStore = defineStore("chat", () => {
   const currentSessionId = ref<string>("");
   const currentQuestion = ref<string>("");
@@ -10,6 +16,7 @@ export const useChatStore = defineStore("chat", () => {
   const isNewChat = ref<boolean>(true);
   const useKnowledgeBase = ref<boolean>(false);
   const selectedFiles = ref<File[]>([]);
+  const allSession = ref<session[]>([]); //会话记录
 
   const isHistoryMode = ref<boolean>(false); //是否是历史对话
 
@@ -44,6 +51,7 @@ export const useChatStore = defineStore("chat", () => {
     isNewChat,
     useKnowledgeBase,
     selectedFiles,
+    allSession,
     setCurrentChat,
     resetChat,
   };
