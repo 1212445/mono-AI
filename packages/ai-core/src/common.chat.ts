@@ -1,45 +1,49 @@
-import { ChatOpenAI } from "@langchain/openai";
-import { memory } from "./memory.js";
+import { manageContext, historyToMessages } from "./memory.js";
+import type { ChatHistory } from "./memory.js";
+import { HumanMessage, AIMessageChunk, ToolMessage } from "langchain";
+import { agent } from "./agent.model.js";
 
 /**
- *
- * @param llm 模型
- * @param input 输入
- * @returns 简单回答
+ * @param input 问题
+ * @param history 历史对话
+ * @param fileContext 文件
+ * @returns 普通对话输出
  */
-
 export async function* chat(
-  llm: ChatOpenAI,
+  sessionId: string,
   input: string,
-  history: Array<{ question: string; answer: string }>,
+  history: ChatHistory[],
   fileContext: string,
 ) {
-  const historyPrompt = await memory(history);
-  const prompt = `你是世界上最棒的问答助手，你的每一次回答，都是至关重要的。
+  const { summaryBlock, recentHistory } = await manageContext(
+    sessionId,
+    history,
+    fileContext,
+  );
 
-${fileContext ? `## 用户上传的文件内容
-${fileContext}` : ""}
+  // 摘要 + 文件拼到首条 user message，作为"用户提供的背景"
+  const contextParts: string[] = [];
+  if (summaryBlock) contextParts.push(`## 历史对话摘要\n${summaryBlock}`);
+  if (fileContext) contextParts.push(`## 用户上传的文件\n${fileContext}`);
+  const contextMsg =
+    contextParts.length > 0
+      ? new HumanMessage(
+          contextParts.join("\n\n") + "\n\n---\n\n请基于以上背景回答。",
+        )
+      : null;
 
-${historyPrompt ? `## 历史对话
-${historyPrompt}` : ""}
+  const messages = [
+    ...(contextMsg ? [contextMsg] : []),
+    ...historyToMessages(recentHistory),
+    new HumanMessage(input),
+  ];
 
-## 用户问题：
-${input}
+  const stream = await agent().stream({ messages }, { streamMode: "messages" });
 
-# 回答要求
-
-## 思考过程
-1. 理解用户问题的核心意图
-2. 结合历史对话（如有）组织回答逻辑
-
-## 最终答案
-- 直接回答问题，不要重复思考过程
-- 回答自然流畅，像与朋友聊天一样
-- 如不确定答案，请诚实说明
-- 回答简洁准确，使用中文`;
-
-  const stream = await llm.stream(prompt);
-  for await (const chunk of stream) {
-    yield chunk.content.toString()
+  for await (const [message] of stream) {
+    if (ToolMessage.isInstance(message)) continue;
+    if (AIMessageChunk.isInstance(message) && message.tool_call_chunks?.length)
+      continue;
+    if (message.content) yield message.content;
   }
 }

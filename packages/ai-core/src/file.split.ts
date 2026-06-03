@@ -1,12 +1,8 @@
 import { Document } from "@langchain/core/documents";
-import { extname } from "node:path";
-
 import {
   RecursiveCharacterTextSplitter,
   MarkdownTextSplitter,
-  TokenTextSplitter,
 } from "@langchain/textsplitters";
-import { index } from "@langchain/core/indexing";
 
 /**
  *

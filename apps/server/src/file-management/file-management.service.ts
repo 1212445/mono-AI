@@ -5,7 +5,13 @@ import { FileManagement } from './file-management.entity';
 import { createHash } from 'crypto';
 import { createReadStream, unlinkSync, existsSync } from 'fs';
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { embedding, loading, splitDocs, vectorStore } from '@rag/ai-core';
+import {
+  embedding,
+  loading,
+  splitDocs,
+  vectorStore,
+  deleteDocumentsByUniqueId,
+} from '@rag/ai-core';
 
 @Injectable()
 export class FileManagementService {
@@ -58,6 +64,7 @@ export class FileManagementService {
     if (existsSync(file.filePath)) {
       unlinkSync(file.filePath);
     }
+    await deleteDocumentsByUniqueId(file.uniqueId);
     await this.fileManagementRepository.delete(id);
     return { message: '删除成功' };
   }

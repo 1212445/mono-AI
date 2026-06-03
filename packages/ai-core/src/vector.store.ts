@@ -9,9 +9,10 @@ export async function vectorStore(
 ): Promise<void> {
   const texts = splitDocs.map((doc) => doc.pageContent);
   const metadatas = splitDocs.map((doc) => doc.metadata);
-  const client = new MilvusClient({ address: `${process.env.milvus_url}` });
-  const collections = await client.listCollections();
+  const url = `${process.env.milvus_url}`;
   const collectionName = `${process.env.milvus_collectionName}`;
+  const client = new MilvusClient({ address: url });
+  const collections = await client.listCollections();
   const collectionExists = collections.data.some(
     (c) => c.name === collectionName,
   );
@@ -20,7 +21,7 @@ export async function vectorStore(
   if (collectionExists) {
     // 集合已存在，追加文档
     const vectorStore = await Milvus.fromExistingCollection(embeddings, {
-      url: `${process.env.milvus_url}`,
+      url,
       collectionName,
       textField: "pageContent",
     });
@@ -28,7 +29,7 @@ export async function vectorStore(
   } else {
     // 集合不存在，创建新集合
     await Milvus.fromTexts(texts, metadatas, embeddings, {
-      url: `${process.env.milvus_url}`,
+      url,
       collectionName,
       textField: "pageContent",
       indexCreateOptions: {
@@ -50,6 +51,20 @@ export async function vectorStore(
 export async function dropCollection(collectionName: string = "mono_docs") {
   const client = new MilvusClient({ address: `${process.env.milvus_url}` });
   await client.dropCollection({ collection_name: collectionName });
+  await client.closeConnection();
+}
+
+/**
+ * 根据 uniqueId 删除集合中的文档
+ * @param uniqueId 文件唯一标识
+ */
+export async function deleteDocumentsByUniqueId(uniqueId: string) {
+  const collectionName = `${process.env.milvus_collectionName}`;
+  const client = new MilvusClient({ address: `${process.env.milvus_url}` });
+  await client.delete({
+    collection_name: collectionName,
+    filter: `uniqueId == "${uniqueId}"`,
+  });
   await client.closeConnection();
 }
 

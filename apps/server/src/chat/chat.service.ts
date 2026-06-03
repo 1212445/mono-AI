@@ -3,9 +3,10 @@ import {
   model,
   embedding,
   retrieveDocuments,
-  generateAnswer,
+  ragChat,
   chat,
   dropCollection,
+  type ChatHistory,
 } from '@rag/ai-core';
 import { extractFileContent } from 'src/utils/file.util';
 import { ChatHistoryService } from '../chat-history/chat-history.service';
@@ -37,31 +38,32 @@ export class ChatService {
 
     const historyRecords =
       await this.chatHistoryService.getHistoryBySessionId(currentSessionId);
-    const history: Array<{ question: string; answer: string }> =
-      historyRecords.map((item) => ({
-        question: item.question,
-        answer: item.answer,
-      }));
+    const history: ChatHistory[] = historyRecords.map((item) => ({
+      question: item.question,
+      answer: item.answer,
+    }));
 
     res.write(`data: ${JSON.stringify({ sessionId: currentSessionId })}\n\n`);
     let fullAnswer = '';
 
     if (modeNumber === 2) {
       const context = await retrieveDocuments(question, 3, llm, embeddingModel);
-      const answer = generateAnswer(
+      const answer = ragChat(
+        currentSessionId,
         question,
-        context,
-        llm,
         history,
         fileContext,
+        context,
       );
       for await (const chunk of answer) {
+        // eslint-disable-next-line @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-base-to-string
         fullAnswer += chunk;
         res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
       }
     } else {
-      const answer = chat(llm, question, history, fileContext);
+      const answer = chat(currentSessionId, question, history, fileContext);
       for await (const chunk of answer) {
+        // eslint-disable-next-line @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-base-to-string
         fullAnswer += chunk;
         res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
       }

@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "test": "npx tsx src/db.loading.ts"
+    "test": "npx tsx src/test.ts"
   },
   "keywords": [],
   "author": "",
@@ -14,7 +14,8 @@
   "packageManager": "pnpm@10.30.3",
   "devDependencies": {
     "@rag/ts": "workspace:*",
-    "@types/node": "^25.5.0"
+    "@types/node": "^25.5.0",
+    "tsx": "^4.22.3"
   },
   "dependencies": {
     "@langchain/classic": "^1.0.25",
@@ -25,6 +26,7 @@
     "@langchain/textsplitters": "^1.0.1",
     "@zilliz/milvus2-sdk-node": "^2.6.12",
     "langchain": "^1.2.37",
+    "ollama": "^0.6.3",
     "pdf-parse": "^1.1.4",
     "zod": "^4.3.6"
   }

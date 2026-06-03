@@ -24,60 +24,118 @@ const selectedFiles = ref<File[]>([]);
 
 const chatTitle = computed(() => chatStore.currentQuestion || "新对话");
 
-const messages = ref<
-  Array<{
-    role: string;
-    content: string;
-    think?: string;
-    showThink?: boolean;
-    timestamp?: string;
-  }>
->([]);
+type Block = {
+  type: "think" | "answer";
+  content: string;
+  typed: string;
+  showThink?: boolean;
+};
+
+type Message = {
+  role: string;
+  content?: string;
+  blocks?: Block[];
+  timestamp?: string;
+};
+
+const messages = ref<Message[]>([]);
 const messagesContainer = ref<HTMLElement | null>(null);
 
-let thinkBuffer = ""; // think 缓冲
-let answerBuffer = ""; // answer 缓冲
-let isInThink = false; // 是否正在接收 think
-let isTyping = false; // 是否正在逐字输出
-let rafId: number | null = null; // requestAnimationFrame ID
-const THINK_DELAY = 5; // think 快速（毫秒）
-const ANSWER_DELAY = 30; // answer 正常（毫秒）
+let isInThink = false;
+let isTyping = false;
+let typingTimeoutId: number | null = null;
+const THINK_DELAY = 5;
+const ANSWER_DELAY = 30;
+
+const appendToBlock = (
+  messageIndex: number,
+  type: "think" | "answer",
+  text: string,
+) => {
+  const msg = messages.value[messageIndex];
+  if (!msg.blocks) msg.blocks = [];
+  const last = msg.blocks[msg.blocks.length - 1];
+  if (last && last.type === type) {
+    last.content += text;
+  } else {
+    msg.blocks.push({
+      type,
+      content: text,
+      typed: "",
+      showThink: type === "think" ? false : undefined,
+    });
+  }
+};
+
+const processChunk = (content: string, messageIndex: number) => {
+  let i = 0;
+  while (i < content.length) {
+    if (isInThink) {
+      const endIdx = content.indexOf("</think>", i);
+      if (endIdx !== -1) {
+        const text = content.slice(i, endIdx);
+        if (text) appendToBlock(messageIndex, "think", text);
+        i = endIdx + 8;
+        isInThink = false;
+      } else {
+        const text = content.slice(i);
+        if (text) appendToBlock(messageIndex, "think", text);
+        i = content.length;
+      }
+    } else {
+      const startIdx = content.indexOf("<think>", i);
+      if (startIdx !== -1) {
+        const text = content.slice(i, startIdx);
+        if (text) appendToBlock(messageIndex, "answer", text);
+        i = startIdx + 7;
+        isInThink = true;
+      } else {
+        const text = content.slice(i);
+        if (text) appendToBlock(messageIndex, "answer", text);
+        i = content.length;
+      }
+    }
+  }
+};
 
 const startTyping = (messageIndex: number) => {
-  if (isTyping || (answerBuffer.length === 0 && thinkBuffer.length === 0))
-    return;
+  if (isTyping) return;
   isTyping = true;
 
   const type = () => {
-    // 先处理 think
-    if (thinkBuffer.length > 0) {
-      const char = thinkBuffer[0];
-      thinkBuffer = thinkBuffer.slice(1);
-      messages.value[messageIndex].think =
-        (messages.value[messageIndex].think || "") + char;
-      rafId = window.setTimeout(type, THINK_DELAY);
-      nextTick(() => {
-        scrollToBottom();
-      });
+    const msg = messages.value[messageIndex];
+    if (!msg.blocks) {
+      isTyping = false;
+      typingTimeoutId = null;
       return;
     }
 
-    // think 处理完后再处理 answer
-    if (answerBuffer.length > 0) {
-      const char = answerBuffer[0];
-      answerBuffer = answerBuffer.slice(1);
-      messages.value[messageIndex].content += char;
-      rafId = window.setTimeout(type, ANSWER_DELAY);
-      nextTick(() => {
-        scrollToBottom();
-      });
-      return;
+    let found = false;
+    let activeBlockType: "think" | "answer" = "answer";
+    for (let i = 0; i < msg.blocks.length; i++) {
+      const block = msg.blocks[i];
+      if (block.typed.length < block.content.length) {
+        const char = block.content[block.typed.length];
+        block.typed += char;
+        activeBlockType = block.type;
+        found = true;
+        break;
+      }
     }
 
-    // 都处理完了
-    isTyping = false;
-    rafId = null;
+    nextTick(() => {
+      scrollToBottom();
+    });
+
+    if (found) {
+      const delay = activeBlockType === "think" ? THINK_DELAY : ANSWER_DELAY;
+      typingTimeoutId = window.setTimeout(type, delay);
+    } else {
+      isTyping = false;
+      typingTimeoutId = null;
+    }
   };
+
   type();
 };
 
@@ -121,46 +179,8 @@ const socket = async (
             }
 
             if (parsed.content) {
-              const content = parsed.content;
-
-              if (isInThink) {
-                const thinkEndIdx = content.indexOf("</think>");
-                if (thinkEndIdx !== -1) {
-                  thinkBuffer += content.slice(0, thinkEndIdx);
-                  answerBuffer += content.slice(thinkEndIdx + 8);
-                  isInThink = false;
-                } else {
-                  thinkBuffer += content;
-                }
-              } else {
-                const thinkStartIdx = content.indexOf("<think>");
-                const thinkEndIdx = content.indexOf("</think>");
-
-                if (thinkStartIdx !== -1) {
-                  if (thinkEndIdx !== -1 && thinkEndIdx > thinkStartIdx) {
-                    answerBuffer += content.slice(0, thinkStartIdx);
-                    thinkBuffer += content.slice(
-                      thinkStartIdx + 6,
-                      thinkEndIdx,
-                    );
-                    answerBuffer += content.slice(thinkEndIdx + 8);
-                  } else {
-                    answerBuffer += content.slice(0, thinkStartIdx);
-                    thinkBuffer += content.slice(thinkStartIdx + 6);
-                    isInThink = true;
-                  }
-                } else if (thinkEndIdx !== -1) {
-                  thinkBuffer += content.slice(0, thinkEndIdx);
-                  answerBuffer += content.slice(thinkEndIdx + 8);
-                  isInThink = false;
-                } else {
-                  answerBuffer += content;
-                }
-              }
-
-              if (!isTyping && (thinkBuffer || answerBuffer)) {
-                startTyping(messageIndex);
-              }
+              processChunk(parsed.content, messageIndex);
+              if (!isTyping) startTyping(messageIndex);
             }
           } catch (e) {
             console.error("解析数据失败:", e);
@@ -171,18 +191,17 @@ const socket = async (
   } catch (error) {
     throw error;
   } finally {
-    if (rafId !== null) {
-      clearTimeout(rafId);
-      rafId = null;
+    const msg = messages.value[messageIndex];
+    if (msg && msg.blocks) {
+      for (const block of msg.blocks) {
+        if (block.typed.length < block.content.length) {
+          block.typed = block.content;
+        }
+      }
     }
-    if (thinkBuffer.length > 0) {
-      messages.value[messageIndex].think =
-        (messages.value[messageIndex].think || "") + thinkBuffer;
-      thinkBuffer = "";
-    }
-    if (answerBuffer.length > 0) {
-      messages.value[messageIndex].content += answerBuffer;
-      answerBuffer = "";
+    if (typingTimeoutId !== null) {
+      clearTimeout(typingTimeoutId);
+      typingTimeoutId = null;
     }
     isTyping = false;
     onComplete?.();
@@ -200,7 +219,7 @@ onMounted(async () => {
   });
   messages.value.push({
     role: "assistant",
-    content: "",
+    blocks: [],
     timestamp: new Date().toLocaleTimeString(),
   });
 
@@ -228,7 +247,9 @@ onMounted(async () => {
     );
   } catch (error) {
     console.error("发送消息失败:", error);
-    messages.value[messageIndex].content = "抱歉，发生了错误，请稍后重试。";
+    messages.value[messageIndex].blocks = [
+      { type: "answer", content: "抱歉，发生了错误，请稍后重试。", typed: "抱歉，发生了错误，请稍后重试。" },
+    ];
   }
 
   nextTick(() => {
@@ -260,7 +281,7 @@ const handleSend = async () => {
 
   messages.value.push({
     role: "assistant",
-    content: "",
+    blocks: [],
     timestamp: new Date().toLocaleTimeString(),
   });
 
@@ -286,7 +307,9 @@ const handleSend = async () => {
     await socket(formData, messageIndex, undefined, false);
   } catch (error) {
     console.error("发送消息失败:", error);
-    messages.value[messageIndex].content = "抱歉，发生了错误，请稍后重试。";
+    messages.value[messageIndex].blocks = [
+      { type: "answer", content: "抱歉，发生了错误，请稍后重试。", typed: "抱歉，发生了错误，请稍后重试。" },
+    ];
   }
 };
 
@@ -343,45 +366,50 @@ const handleRemoveFile = () => {
                 {{ message.role === "user" ? "你" : "AI" }}
               </div>
               <div
-                class="flex max-w-[80%] flex-col gap-2"
+                class="flex max-w-[80%] flex-col gap-3"
                 :class="message.role === 'user' ? 'items-end' : 'items-start'"
               >
-                <!-- Think 部分 -->
-                <div v-if="message.think" class="w-full">
-                  <button
-                    @click="message.showThink = !message.showThink"
-                    class="text-xs text-muted-foreground hover:text-foreground mb-1 flex items-center gap-1"
-                  >
-                    <span>{{ message.showThink ? "▼" : "▶" }}</span>
-                    <span>思考过程</span>
-                  </button>
-                  <div
-                    v-show="message.showThink"
-                    class="rounded-lg px-3 py-2 bg-muted/50 text-muted-foreground text-xs"
-                  >
-                    <MarkdownRenderer :content="message.think || ''" />
-                  </div>
-                </div>
-                <!-- Answer 部分 -->
+                <!-- Assistant: render multiple think/answer blocks -->
+                <template v-if="message.role === 'assistant'">
+                  <template v-for="(block, bIdx) in message.blocks" :key="bIdx">
+                    <!-- Think block -->
+                    <div v-if="block.type === 'think'" class="w-full">
+                      <button
+                        @click="block.showThink = !block.showThink"
+                        class="text-xs text-muted-foreground hover:text-foreground mb-1 flex items-center gap-1"
+                      >
+                        <span>{{ block.showThink ? "▼" : "▶" }}</span>
+                        <span>思考过程</span>
+                      </button>
+                      <div
+                        v-show="block.showThink"
+                        class="rounded-lg px-3 py-2 bg-muted/50 text-muted-foreground text-xs"
+                      >
+                        <MarkdownRenderer :content="block.typed || ''" />
+                      </div>
+                    </div>
+                    <!-- Answer block -->
+                    <div
+                      v-else
+                      class="rounded-2xl px-4 py-3 bg-muted"
+                    >
+                      <MarkdownRenderer :content="block.typed || ''" />
+                    </div>
+                  </template>
+                </template>
+
+                <!-- User: simple text bubble -->
                 <div
-                  class="rounded-2xl px-4 py-3"
-                  :class="
-                    message.role === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted'
-                  "
+                  v-else
+                  class="rounded-2xl px-4 py-3 bg-primary text-primary-foreground"
                 >
-                  <MarkdownRenderer
-                    v-if="message.role === 'assistant'"
-                    :content="message.content"
-                  />
                   <p
-                    v-else
                     class="text-sm md:text-base leading-relaxed whitespace-pre-wrap"
                   >
                     {{ message.content }}
                   </p>
                 </div>
+
                 <div
                   v-if="message.role === 'assistant'"
                   class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"

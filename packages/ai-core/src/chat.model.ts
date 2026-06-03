@@ -1,9 +1,11 @@
 import { ChatOpenAI } from "@langchain/openai";
 
 // 默认使用 minimax 模型
-export function model() {
-  const llm = new ChatOpenAI({
-    model: "MiniMax-M2.7",
+let _llm: ChatOpenAI | null = null;
+export function model(): ChatOpenAI {
+  if (_llm) return _llm;
+  _llm = new ChatOpenAI({
+    model: "MiniMax-M3",
     apiKey: process.env.MINIMAX_API_KEY,
     streaming: true,
     configuration: {
@@ -13,5 +15,5 @@ export function model() {
       },
     },
   });
-  return llm
+  return _llm;
 }

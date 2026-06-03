@@ -1,159 +1,171 @@
+# RAG 智能对话系统
 
+基于检索增强生成（RAG）技术的智能对话系统，支持多轮对话、知识库管理、多格式文档检索、流式回答与 Agent 网络检索。
 
-Based on the code map provided, I can see this is a RAG (Retrieval-Augmented Generation) application called "rag" with a monorepo structure. Let me analyze the key components:
+## 功能特性
 
-**Project Structure:**
-- **apps/server** - NestJS backend (TypeScript)
-- **apps/web** - Vue 3 + TypeScript + Vite frontend
-- **packages/ai-core** - AI/RAG core package
-- **packages/docker** - Docker configurations (Milvus, MySQL)
-- **packages/ts** - TypeScript shared package
-
-**Key Technologies:**
-- Backend: NestJS, TypeORM
-- Frontend: Vue 3, Vite, TypeScript
-- AI/RAG: Embedding models, Vector store (Milvus), Memory management
-- Database: MySQL, Milvus (vector database)
-
-Now I'll create a comprehensive README:
-
----
-
-# RAG
-
-一个基于检索增强生成（RAG）技术的智能对话系统，采用现代化微服务架构，支持知识库管理和智能问答。
-
-## 项目特性
-
-- 🧠 **智能对话** - 基于 RAG 技术的问答系统，支持上下文记忆
-- 📚 **知识库管理** - 支持多种文档格式（PDF、CSV、JSON、Markdown 等）的上传和检索
-- 🔍 **向量检索** - 基于 Milvus 向量数据库的高效语义搜索
-- 💬 **现代 Web UI** - 简洁美观的Vue 3前端界面
+- 🧠 **多轮对话** — 基于 SessionId 的上下文记忆，支持普通对话与 RAG 增强两种模式
+- 📚 **知识库管理** — 上传 PDF / CSV / JSON / Markdown 等文档，经嵌入后存入 Milvus 向量库
+- 🔍 **语义检索** — 基于 Milvus 的相似度检索 + 可选 Rerank 重排序
+- 💬 **流式输出** — 后端通过 SSE（Server-Sent Events）逐 chunk 推送
+- 🤖 **Agent 模式** — 集成 Tavily 网络检索，模型可按需调用工具
+- 📎 **会话级文件** — 对话中上传文件（最多 5 个），自动抽取文本作为上下文
+- 🕘 **历史回溯** — MySQL 持久化聊天记录，按 SessionId 查询
 
 ## 技术栈
 
-### 后端
-- NestJS
-- TypeORM
-- MySQL
-- Milvus (向量数据库)
+### 前端 `apps/web`
+- Vue 3.5 + TypeScript 5.9 + Vite 8
+- Tailwind CSS v4（`@tailwindcss/vite`）
+- Shadcn Vue（基于 `reka-ui` 原语）+ `class-variance-authority` + `tailwind-merge` + `clsx`
+- Pinia 状态管理、Vue Router（hash 模式）
+- `markdown-it` + `highlight.js` 渲染 Markdown 与代码高亮
+- `vue-sonner` 消息提示、`@tanstack/vue-table` 表格、`axios` HTTP、`lucide-vue-next` 图标、`@vueuse/core` 组合式工具
 
-### 前端
-- Vue 3 + TypeScript
-- Vite
-- Shadcn Vue (UI组件)
+### 后端 `apps/server`
+- NestJS 11（Fastify/Express，默认 Express）
+- TypeORM 0.3 + MySQL（`mysql2` 驱动）
+- `@nestjs/config` 加载 `.env`，`multer` 内存式 multipart 解析
+- `webpack` HMR 热重载（`webpack-hmr.config.js`）
 
-### 核心包
-- AI Core - RAG 核心功能实现
+### AI 核心 `packages/ai-core`
+- LangChain：`@langchain/core` / `@langchain/community` / `@langchain/classic` / `@langchain/ollama` / `@langchain/openai`
+- 向量库：`@zilliz/milvus2-sdk-node`（Milvus 2.x SDK）
+- 文档处理：`pdf-parse` + LangChain `textsplitters`
+- 校验：`zod`
+- 默认 LLM 走 **MiniMax** 兼容协议（也支持 OpenAI / Ollama）
 
-## 快速开始
-
-### 前置要求
-
-- Node.js >= 18
-- pnpm >= 8
-- Docker & Docker Compose
-
-### 安装
-
-```bash
-# 安装依赖
-pnpm install
-```
-
-### 启动服务
-
-#### 1. 启动数据库服务
-
-```bash
-# 启动 MySQL
-cd packages/docker/mysql && docker-compose up -d
-
-# 启动 Milvus
-cd packages/docker/milvus && docker-compose up -d
-```
-
-#### 2. 启动后端服务
-
-```bash
-cd apps/server
-
-# 开发模式（热重载）
-pnpm run start:dev
-
-# 或生产模式
-pnpm run build
-pnpm run start:prod
-```
-
-#### 3. 启动前端
-
-```bash
-cd apps/web
-
-# 开发模式
-pnpm run dev
-
-# 构建生产版本
-pnpm run build
-```
+### 基础设施
+- MySQL（端口 3309）— 聊天历史、文件管理
+- Milvus Standalone（端口 19530、ETCD 2379、MinIO）— 向量存储
+- pnpm 10.30.3 workspace
 
 ## 项目结构
 
 ```
 rag/
 ├── apps/
-│   ├── server/          # NestJS 后端服务
+│   ├── server/                  # @rag/server — NestJS 后端（端口 3000）
 │   │   └── src/
-│   │       ├── chat/         # 对话模块
-│   │       └── chat-history/ # 聊天历史模块
-│   └── web/             # Vue 3 前端
+│   │       ├── chat/            # 对话模块（SSE 流式）
+│   │       ├── chat-history/    # 聊天历史持久化
+│   │       ├── file-management/ # 知识库文件管理
+│   │       ├── entities/        # TypeORM 实体
+│   │       ├── upload/          # 上传文件存储目录
+│   │       └── utils/           # 文件解析等工具
+│   └── web/                     # Vue 3 前端（端口 5173）
 │       └── src/
-│           ├── components/   # UI组件
-│           ├── pages/        # 页面
-│           └── router/       # 路由配置
-├── packages/
-│   ├── ai-core/        # RAG 核心包
-│   │   └── src/
-│   │       ├── chat.model.ts     # 对话模型
-│   │       ├── embedding.model.ts # 向量嵌入模型
-│   │       ├── file.loading.ts  # 文件加载
-│   │       ├── file.split.ts     # 文档分块
-│   │       ├── memory.ts         # 记忆管理
-│   │       ├── retrieve.doc.ts   # 文档检索
-│   │       └── vector.store.ts  # 向量存储
-│   ├── docker/         # Docker配置
-│   │   ├── milvus/     # Milvus向量数据库
-│   │   └── mysql/      # MySQL数据库
-│   └── ts/             # TypeScript共享包
-└── pnpm-workspace.yaml # pnpm工作区配置
+│           ├── pages/
+│           │   ├── home/        # 首页
+│           │   ├── chat/        # 对话页（流式渲染）
+│           │   └── kb/          # 知识库管理
+│           ├── components/      # 通用组件
+│           ├── store/           # Pinia 状态
+│           └── router/          # 路由（hash 模式）
+└── packages/
+    ├── ai-core/                 # @rag/ai-core — LangChain RAG 核心（需 build）
+    ├── utils/                   # @rag/utils — 共享前端工具
+    ├── ts/                      # @rag/ts — 共享 TS 配置/类型
+    └── docker/
+        ├── milvus/              # Milvus standalone + etcd + minio
+        └── mysql/               # MySQL 8
 ```
 
-## API 文档
+依赖关系：`apps/server → @rag/ai-core → @rag/ts`，`apps/web → @rag/utils`。
 
-后端服务默认运行在 `http://localhost:3000`
+## 快速开始
 
-### 对话接口
+### 环境要求
+- Node.js ≥ 18
+- pnpm ≥ 10（项目使用 `pnpm@10.30.3`）
+- Docker & Docker Compose
+
+### 1. 安装依赖
 
 ```bash
-# 发送消息
-POST /chat
-Content-Type: application/json
-
-{
-  "message": "你的问题",
-  "conversationId": "对话ID（可选）"
-}
+pnpm install
 ```
 
-## 环境变量
+### 2. 启动基础设施
 
-后端服务需要配置以下环境变量，详见 `apps/server/.env`（需自行创建）：
+```bash
+# MySQL（端口 3309，root/123456，库名 rag）
+cd packages/docker/mysql && docker compose up -d
 
-- `DATABASE_URL` - MySQL数据库连接地址
-- `MILVUS_HOST` - Milvus服务地址
-- `OPENAI_API_KEY` - OpenAI API密钥（用于GPT模型）
+# Milvus Standalone（端口 19530）
+cd packages/docker/milvus && docker compose up -d
+```
+
+### 3. 配置后端环境变量
+
+在 `apps/server/.env`（**需自建**，已在 `.gitignore` 中）：
+
+```env 示例
+# MySQL
+db_host=localhost
+db_port=3306
+db_user=root
+db_password=123456
+db_database=rag
+
+# Milvus
+milvus_url=localhost:19530
+milvus_collectionName=rag_docs
+
+# LLM（用什么都行，我这里用的minimax）
+MINIMAX_API_KEY=your-minimax-api-key
+MINIMAX_GROUP_ID=your-group-id
+
+# Rerank（可选）
+RERANK_API_KEY=your-rerank-key
+RERANK_URL=https://your-rerank-endpoint
+RERANK_MODEL=your-rerank-model
+
+# Tavily 网络检索（Agent 模式需要）
+tavily_api=your-tavily-key
+
+# Web CORS
+web_origin=http://localhost:5173
+
+# 服务端口
+PORT=3000
+```
+
+### 4. 启动开发服务
+
+三个终端：
+
+```bash
+# 终端 1：构建 ai-core（修改后必须重新构建）
+cd packages/ai-core && pnpm run build
+
+# 终端 2：后端（webpack HMR）
+cd apps/server && pnpm run start:dev
+
+# 终端 3：前端
+cd apps/web && pnpm run dev
+```
+
+访问：
+- 前端：http://localhost:5173
+- 后端：http://localhost:3000
+```
+
+### ai-core 预构建
+
+ai-core 是 ESM 包，后端通过 `workspace:*` 引用其 `dist/`，**修改后必须重新构建**：
+
+```bash
+cd packages/ai-core && pnpm run build
+```
+
+## 开发规范
+
+- **新增 TypeORM 实体**：在 `src/entities/` 创建类，然后在 `app.module.ts` 的 `entities: []` 数组挂上。`synchronize: true` 会自动建表。
+- **新增模块**：标准 NestJS 模式，在 `app.module.ts` 的 `imports: []` 注册。
+- **复用 ai-core 能力**：`apps/server` 通过 `import { model, embedding, retrieveDocuments, ragChat, chat, ... } from '@rag/ai-core'` 引入，禁止在后端直接拼装 LangChain。
+- **前端样式**：统一使用 Tailwind v4 原子类 + `cn()`（`clsx` + `tailwind-merge`）合并。
 
 ## 许可证
 
-MIT License
+MIT

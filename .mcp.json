@@ -3,20 +3,6 @@
     "docs-langchain": {
       "type": "http",
       "url": "https://docs.langchain.com/mcp"
-    },
-    "mcp_server_mysql": {
-      "command": "npx",
-      "args": ["-y", "@benborla29/mcp-server-mysql"],
-      "env": {
-        "MYSQL_HOST": "localhost",
-        "MYSQL_PORT": "3306",
-        "MYSQL_USER": "root",
-        "MYSQL_PASS": "djy123123aaa",
-        "MYSQL_DB": "rag",
-        "ALLOW_INSERT_OPERATION": "true",
-        "ALLOW_UPDATE_OPERATION": "true",
-        "ALLOW_DELETE_OPERATION": "true"
-      }
     }
   }
 }
