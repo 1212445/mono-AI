@@ -21,3 +21,4 @@ coverage
 *.tsbuildinfo
 apps/server/src/upload/*
 docs
+packages/docker/milvus/volumes/*

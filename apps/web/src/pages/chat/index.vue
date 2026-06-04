@@ -12,18 +12,22 @@ import {
   Brain,
 } from "lucide-vue-next";
 import { ref, onMounted, nextTick, computed } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
+import server from "@/utils/axios.config";
 import ChatInput from "@/components/input/index.vue";
 import { useChatStore } from "@/store";
 
 const router = useRouter();
+const route = useRoute();
 const chatStore = useChatStore();
 
 const inputMessage = ref("");
 const useKnowledgeBase = ref(false);
 const selectedFiles = ref<File[]>([]);
 
-const chatTitle = computed(() => chatStore.currentQuestion || "新对话");
+const chatTitle = computed(
+  () => messages.value.find((m) => m.role === "user")?.content || "新对话",
+);
 
 type Block = {
   type: "think" | "answer";
@@ -37,6 +41,15 @@ type Message = {
   content?: string;
   blocks?: Block[];
   timestamp?: string;
+};
+
+type ChatHistoryRecord = {
+  id: number;
+  sessionId: string;
+  question: string;
+  answer: string;
+  mode: number;
+  createdTime: string;
 };
 
 const messages = ref<Message[]>([]);
@@ -140,12 +153,48 @@ const startTyping = (messageIndex: number) => {
   type();
 };
 
-const socket = async (
-  formData: FormData,
+const buildHistorySkeleton = (records: ChatHistoryRecord[]) => {
+  isInThink = false;
+  records.forEach((r) => {
+    messages.value.push({
+      role: "user",
+      content: r.question,
+      timestamp: new Date(r.createdTime).toLocaleTimeString(),
+    });
+    messages.value.push({
+      role: "assistant",
+      blocks: [],
+      timestamp: new Date(r.createdTime).toLocaleTimeString(),
+    });
+  });
+};
+
+const fillHistoryContent = (records: ChatHistoryRecord[]) => {
+  records.forEach((r, i) => {
+    const aiIndex = i * 2 + 1;
+    isInThink = false;
+    processChunk(r.answer, aiIndex);
+    for (const block of messages.value[aiIndex].blocks!) {
+      block.typed = block.content;
+    }
+  });
+};
+
+const sendMessage = async (
+  question: string,
+  useKB: boolean,
+  files: File[],
+  sessionId: string,
   messageIndex: number,
-  onComplete?: () => void,
-  sessionIdSetInitial = true,
 ) => {
+  const formData = new FormData();
+  formData.append("question", question);
+  formData.append("sessionId", sessionId);
+  formData.append("mode", String(useKB ? 2 : 1));
+  files.forEach((file) => {
+    formData.append("files", file);
+  });
+
   const res = await fetch("http://localhost:3000/chat", {
     method: "post",
     body: formData,
@@ -155,30 +204,19 @@ const socket = async (
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let sessionIdSet = sessionIdSetInitial;
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       const chunk = decoder.decode(value, { stream: true });
-      console.log("chunk是", chunk);
       const lines = chunk.split("\n");
       for (const line of lines) {
         if (line.startsWith("data: ")) {
           const data = line.slice(6);
-
-          if (data === "[DONE]") {
-            continue;
-          }
-
+          if (data === "[DONE]") continue;
           try {
             const parsed = JSON.parse(data);
-            if (parsed.sessionId && !sessionIdSet) {
-              chatStore.currentSessionId = parsed.sessionId;
-              sessionIdSet = true;
-            }
-
             if (parsed.content) {
               processChunk(parsed.content, messageIndex);
               if (!isTyping) startTyping(messageIndex);
@@ -189,8 +227,6 @@ const socket = async (
         }
       }
     }
-  } catch (error) {
-    throw error;
   } finally {
     const msg = messages.value[messageIndex];
     if (msg && msg.blocks) {
@@ -205,7 +241,6 @@ const socket = async (
       typingTimeoutId = null;
     }
     isTyping = false;
-    onComplete?.();
     nextTick(() => {
       scrollToBottom();
     });
@@ -213,44 +248,60 @@ const socket = async (
 };
 
 onMounted(async () => {
-  messages.value.push({
-    role: "user",
-    content: chatStore.currentQuestion,
-    timestamp: new Date().toLocaleTimeString(),
-  });
-  messages.value.push({
-    role: "assistant",
-    blocks: [],
-    timestamp: new Date().toLocaleTimeString(),
-  });
+  const sessionId = route.params.id as string;
 
-  const messageIndex = messages.value.length - 1;
-  useKnowledgeBase.value = chatStore.useKnowledgeBase;
-  selectedFiles.value = chatStore.selectedFiles;
-
-  const formData = new FormData();
-  formData.append("question", chatStore.currentQuestion);
-  formData.append("sessionId", chatStore.currentSessionId);
-  formData.append("mode", String(chatStore.useKnowledgeBase ? 2 : 1));
-
-  chatStore.selectedFiles.forEach((file) => {
-    formData.append("files", file);
-  });
-
+  // 第一步:永远先拉历史
   try {
-    await socket(
-      formData,
-      messageIndex,
-      () => {
-        chatStore.resetChat();
-      },
-      true,
-    );
-  } catch (error) {
-    console.error("发送消息失败:", error);
-    messages.value[messageIndex].blocks = [
-      { type: "answer", content: "抱歉，发生了错误，请稍后重试。", typed: "抱歉，发生了错误，请稍后重试。" },
-    ];
+    const res = await server.get(`/chat/${sessionId}`);
+    const records: ChatHistoryRecord[] = res.data.data;
+    messages.value = [];
+    buildHistorySkeleton(records);
+    fillHistoryContent(records);
+  } catch (e) {
+    console.error("加载历史失败", e);
+    messages.value = [];
+  }
+
+  // 第二步:只有从 home 跳过来的新对话,才发首问
+  if (chatStore.currentSessionId === sessionId && chatStore.currentQuestion) {
+    const {
+      currentQuestion: q,
+      useKnowledgeBase: kb,
+      selectedFiles: fs,
+    } = chatStore;
+    chatStore.resetChat();
+    useKnowledgeBase.value = kb;
+    selectedFiles.value = fs;
+
+    messages.value.push({
+      role: "user",
+      content: q,
+      timestamp: new Date().toLocaleTimeString(),
+    });
+    messages.value.push({
+      role: "assistant",
+      blocks: [],
+      timestamp: new Date().toLocaleTimeString(),
+    });
+    const messageIndex = messages.value.length - 1;
+
+    try {
+      await sendMessage(q, kb, fs, sessionId, messageIndex);
+      chatStore.allSession.unshift({
+        sessionId,
+        title: q.slice(0, 20),
+        lastActiveTime: new Date(),
+      });
+    } catch (error) {
+      console.error("发送消息失败", error);
+      messages.value[messageIndex].blocks = [
+        {
+          type: "answer",
+          content: "抱歉，发生了错误，请稍后重试。",
+          typed: "抱歉，发生了错误，请稍后重试。",
+        },
+      ];
+    }
   }
 
   nextTick(() => {
@@ -297,7 +348,7 @@ const handleSend = async () => {
 
   const formData = new FormData();
   formData.append("question", question);
-  formData.append("sessionId", chatStore.currentSessionId || "");
+  formData.append("sessionId", route.params.id as string);
   formData.append("mode", String(useKnowledgeBase.value ? 2 : 1));
 
   files.forEach((file) => {
@@ -305,11 +356,21 @@ const handleSend = async () => {
   });
 
   try {
-    await socket(formData, messageIndex, undefined, false);
+    await sendMessage(
+      question,
+      useKnowledgeBase.value,
+      files,
+      route.params.id as string,
+      messageIndex,
+    );
   } catch (error) {
     console.error("发送消息失败:", error);
     messages.value[messageIndex].blocks = [
-      { type: "answer", content: "抱歉，发生了错误，请稍后重试。", typed: "抱歉，发生了错误，请稍后重试。" },
+      {
+        type: "answer",
+        content: "抱歉，发生了错误，请稍后重试。",
+        typed: "抱歉，发生了错误，请稍后重试。",
+      },
     ];
   }
 };
@@ -390,10 +451,7 @@ const handleRemoveFile = () => {
                       </div>
                     </div>
                     <!-- Answer block -->
-                    <div
-                      v-else
-                      class="rounded-2xl px-4 py-3 bg-muted"
-                    >
+                    <div v-else class="rounded-2xl px-4 py-3 bg-muted">
                       <MarkdownRenderer :content="block.typed || ''" />
                     </div>
                   </template>
