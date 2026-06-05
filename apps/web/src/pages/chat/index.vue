@@ -16,6 +16,7 @@ import { useRoute, useRouter } from "vue-router";
 import server from "@/utils/axios.config";
 import ChatInput from "@/components/input/index.vue";
 import { useChatStore } from "@/store";
+import { toast } from "vue-sonner";
 
 const router = useRouter();
 const route = useRoute();
@@ -29,20 +30,22 @@ const chatTitle = computed(
   () => messages.value.find((m) => m.role === "user")?.content || "新对话",
 );
 
+// 模型的回答
 type Block = {
-  type: "think" | "answer";
-  content: string;
-  typed: string;
-  showThink?: boolean;
+  type: "think" | "answer"; // 思考块 or 答案块
+  content: string; // 单个块完整原文
+  typed: string; // 已"打字机"渲染出来的部分
+  showThink?: boolean;  // 思考块是否展开
 };
 
 type Message = {
-  role: string;
-  content?: string;
-  blocks?: Block[];
-  timestamp?: string;
+  role: "user" | "assistant";
+  content?: string; // 用户消息纯文本
+  blocks?: Block[]; // AI 消息分块（思考/答案交替）
+  timestamp?: string; // 时间戳
 };
 
+// 对应后端chatHistory 实体
 type ChatHistoryRecord = {
   id: number;
   sessionId: string;
@@ -55,12 +58,13 @@ type ChatHistoryRecord = {
 const messages = ref<Message[]>([]);
 const messagesContainer = ref<HTMLElement | null>(null);
 
-let isInThink = false;
-let isTyping = false;
+let isInThink = false; //当前是否在思考
+let isTyping = false; //打字机动画是否在跑
 let typingTimeoutId: number | null = null;
-const THINK_DELAY = 5;
-const ANSWER_DELAY = 30;
+const THINK_DELAY = 5;  // 思考块打字速度（ms/字）
+const ANSWER_DELAY = 30;  // 答案块打字速度（ms/字）
 
+// 向消息追加文本
 const appendToBlock = (
   messageIndex: number,
   type: "think" | "answer",
@@ -81,6 +85,7 @@ const appendToBlock = (
   }
 };
 
+// 从 LLM 输出中识别 <think>...</think> 标签，把"思考"和"回答"分到不同的 Block
 const processChunk = (content: string, messageIndex: number) => {
   let i = 0;
   while (i < content.length) {
@@ -112,8 +117,9 @@ const processChunk = (content: string, messageIndex: number) => {
   }
 };
 
+// 打字机动画
 const startTyping = (messageIndex: number) => {
-  if (isTyping) return;
+  if (isTyping) return; // 互斥锁：避免多链
   isTyping = true;
 
   const type = () => {
@@ -126,20 +132,16 @@ const startTyping = (messageIndex: number) => {
 
     let found = false;
     let activeBlockType: "think" | "answer" = "answer";
-    for (let i = 0; i < msg.blocks.length; i++) {
+    for (let i = 0; i < msg.blocks.length; i++) {  // 顺序遍历所有块
       const block = msg.blocks[i];
       if (block.typed.length < block.content.length) {
         const char = block.content[block.typed.length];
-        block.typed += char;
+        block.typed += char;  // 推进一个字
         activeBlockType = block.type;
         found = true;
-        break;
+        break;  // 一次只打一个字
       }
     }
-
-    nextTick(() => {
-      scrollToBottom();
-    });
 
     if (found) {
       const delay = activeBlockType === "think" ? THINK_DELAY : ANSWER_DELAY;
@@ -260,6 +262,7 @@ onMounted(async () => {
   } catch (e) {
     console.error("加载历史失败", e);
     messages.value = [];
+    toast.error("加载历史失败");
   }
 
   // 第二步:只有从 home 跳过来的新对话,才发首问
@@ -294,6 +297,7 @@ onMounted(async () => {
       });
     } catch (error) {
       console.error("发送消息失败", error);
+      toast.error("发送消息失败");
       messages.value[messageIndex].blocks = [
         {
           type: "answer",
@@ -318,6 +322,20 @@ const scrollToBottom = () => {
 const goHome = () => {
   router.push("/");
 };
+
+const copyContent = async (mes: Message) => {
+  // ReAct 循环中前面 answer 块是工具调用等中间产物，只取最后一个作为最终回答
+  const lastAnswer = [...(mes.blocks ?? [])]
+    .reverse()
+    .find((b) => b.type === "answer");
+  if (!lastAnswer) return;
+  try {
+    await navigator.clipboard.writeText(lastAnswer.content);
+    toast.success("已复制回答内容");
+  } catch {
+    toast.error("复制失败，请手动复制");
+  }
+}
 
 const handleSend = async () => {
   const question = inputMessage.value;
@@ -365,6 +383,7 @@ const handleSend = async () => {
     );
   } catch (error) {
     console.error("发送消息失败:", error);
+    toast.error("发送消息失败");
     messages.value[messageIndex].blocks = [
       {
         type: "answer",
@@ -414,7 +433,7 @@ const handleRemoveFile = () => {
             <div
               v-for="(message, index) in messages"
               :key="index"
-              class="group flex gap-4"
+              class="chat-message group flex gap-4"
               :class="message.role === 'user' ? 'flex-row-reverse' : ''"
             >
               <div
@@ -441,7 +460,7 @@ const handleRemoveFile = () => {
                         class="text-xs text-muted-foreground hover:text-foreground mb-1 flex items-center gap-1"
                       >
                         <span><Brain /></span>
-                        <span>思考</span>
+                        <span>mono 的思考过程</span>
                       </button>
                       <div
                         v-show="block.showThink"
@@ -473,7 +492,7 @@ const handleRemoveFile = () => {
                   v-if="message.role === 'assistant'"
                   class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
                 >
-                  <button
+                  <button @click="copyContent(message)"
                     class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
                   >
                     <Copy class="h-3.5 w-3.5" />
@@ -533,3 +552,10 @@ const handleRemoveFile = () => {
     </SidebarInset>
   </SidebarProvider>
 </template>
+
+<style scoped>
+.chat-message {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
+}
+</style>

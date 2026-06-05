@@ -14,12 +14,19 @@ pnpm install
 
 # 后端开发（webpack HMR 热重载，端口 3000）
 cd apps/server && pnpm run start:dev
+cd apps/server && pnpm run start:debug      # 附加 --inspect 断点
+
+# 后端生产构建 / 启动（输出到 dist/）
+cd apps/server && pnpm run build
+cd apps/server && pnpm run start:prod
 
 # 从已有 MySQL 库同步生成 TypeORM 实体
 cd apps/server && pnpm run gen               # 写到 src/entities/
 
 # 前端开发（端口 5173）
 cd apps/web && pnpm run dev
+# 前端构建（vue-tsc 类型检查 + vite build）
+cd apps/web && pnpm run build
 
 # ai-core：修改后必须重新构建，后端才能用最新代码
 cd packages/ai-core && pnpm run build
@@ -49,8 +56,9 @@ packages/
 ### 后端 `apps/server`（NestJS）
 
 模块（`src/app.module.ts`）：
-- **ChatModule** — `POST /chat` 走 SSE 流式输出，支持 multipart 上传最多 5 个文件（multer `memoryStorage`），模式 `1`=普通对话、`2`=RAG 检索增强；`GET /chat/:id` 取历史；`GET /chat/r/r` 清空 Milvus collection。
+- **ChatModule** — `POST /chat` 走 SSE 流式输出（`Content-Type: text/event-stream`），支持 multipart 上传最多 5 个文件（multer `memoryStorage`），模式 `1`=普通对话、`2`=RAG 检索增强；`GET /chat/findAll` 列出所有会话；`GET /chat/:id` 按 sessionId 取历史；`GET /chat/r/r` 清空 Milvus collection。
 - **ChatHistoryModule** — 实体 `ChatHistory`，按 `sessionId` 存取问答。
+- **ChatSessionModule** — 实体 `ChatSession`，保存会话的 `sessionId` / `title` / `lastActiveTime`，前端侧边栏列表的数据源。
 - **FileManagementModule** — 实体 `FileManagement`，管理上传文件。
 - TypeORM `synchronize: true`，启动会自动建表；新增实体后只需在 `app.module.ts` 的 `entities: []` 数组里挂上。
 
@@ -64,8 +72,8 @@ ESM 包，入口 `src/index.ts` 导出：
 - `model` / `embedding` — LLM 与 embedding 工厂
 - `ragChat` / `chat` — RAG 流式问答与普通流式问答
 - `rerankDocuments` — 重排序
-- `agent` / `agent.tool` — Agent 模式（含工具调用）
-- `memory` — `ChatHistory`、`ManagedContext` 类型
+- `agent` — Agent 模式（内部通过 `agent.tool.ts` 注入工具，如 Tavily 搜索）
+- 类型 `ChatHistory` / `ManagedContext`（来自 `memory.ts`）
 
 约定：**`pnpm run build` 之前改 ai-core 不会被 server 看到**。server 通过 `workspace:*` 引用编译产物 `dist/`。
 
@@ -90,9 +98,12 @@ ESM 包，入口 `src/index.ts` 导出：
 
 ## 数据基础设施
 
-- MySQL（端口 3309）、Milvus ETCD（端口 2379）由 `packages/docker/milvus/docker-compose.yml` 启动。
-- 前端通过 `apps/web` 的 Vite 代理把 `/api` 转到后端（具体见 `apps/web/vite.config.ts`，如不存在需自检）。
+- MySQL（端口 3309）：`packages/docker/mysql/docker-compose.yml` 启动（root/123456，库 `rag`）。
+- Milvus Standalone + ETCD（2379）+ MinIO：`packages/docker/milvus/docker-compose.yml` 启动。
+- 前端不走 Vite 代理，而是 axios 直接打 `http://localhost:3000`（见 `apps/web/src/utils/axios.config.ts`），由后端 CORS（`web_origin`）放行。
 
 ## MCP 工具
 
 `.mcp.json` 配置了 `docs-langchain`（LangChain 官方文档 HTTP MCP），编写或调试 ai-core 时可优先查询。
+
+会话内 Claude Code 还可能挂载：`milvus`（pymilvus SDK，Milvus 集合管理 / 检索）、`context7`（通用库文档查询）、`tavily-search`（CLI 形态的网页搜索）、`github`、`vercel`、`playwright` 等。涉及对应能力时直接调用即可，不必自己造轮子。
