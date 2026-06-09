@@ -65,17 +65,48 @@ export class ChatService {
         fileContext,
         context,
       );
-      for await (const chunk of answer) {
-        // eslint-disable-next-line @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-base-to-string
-        fullAnswer += chunk;
-        res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
+      for await (const ev of answer) {
+        if (ev.type === 'content') {
+          fullAnswer += ev.delta;
+          res.write(
+            `event: content\ndata: ${JSON.stringify({ content: ev.delta })}\n\n`,
+          );
+        } else if (ev.type === 'reasoning') {
+          res.write(
+            `event: reasoning\ndata: ${JSON.stringify({ delta: ev.delta })}\n\n`,
+          );
+        } else if (ev.type === 'tool_call') {
+          res.write(
+            `event: tool_call\ndata: ${JSON.stringify({ id: ev.id, name: ev.name, args: ev.args })}\n\n`,
+          );
+        } else if (ev.type === 'tool_result') {
+          res.write(
+            `event: tool_result\ndata: ${JSON.stringify({ id: ev.id, name: ev.name })}\n\n`,
+          );
+        }
       }
     } else {
       const answer = chat(currentSessionId, question, history, fileContext);
-      for await (const chunk of answer) {
-        // eslint-disable-next-line @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-base-to-string
-        fullAnswer += chunk;
-        res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
+      for await (const ev of answer) {
+        if (ev.type === 'content') {
+          fullAnswer += ev.delta;
+          res.write(
+            `event: content\ndata: ${JSON.stringify({ content: ev.delta })}\n\n`,
+          );
+        } else if (ev.type === 'reasoning') {
+          res.write(
+            `event: reasoning\ndata: ${JSON.stringify({ delta: ev.delta })}\n\n`,
+          );
+        } else if (ev.type === 'tool_call') {
+          res.write(
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+            `event: tool_call\ndata: ${JSON.stringify({ id: ev.id, name: ev.name, args: ev.args })}\n\n`,
+          );
+        } else if (ev.type === 'tool_result') {
+          res.write(
+            `event: tool_result\ndata: ${JSON.stringify({ id: ev.id, name: ev.name })}\n\n`,
+          );
+        }
       }
     }
 

@@ -1,6 +1,7 @@
 import { manageContext, historyToMessages, type ChatHistory } from "./memory.js";
-import { HumanMessage, AIMessageChunk, ToolMessage } from "langchain";
+import { HumanMessage } from "langchain";
 import { agent } from "./agent.model.js";
+import { parseAgentStream } from "./common.chat.js";
 
 /**
  * RAG 对话：基于检索资料 + 历史摘要 + 文件内容生成回答
@@ -9,7 +10,7 @@ import { agent } from "./agent.model.js";
  * @param history 历史对话
  * @param fileContext 用户上传的文件内容
  * @param context 检索得到的资料片段
- * @returns 流式输出
+ * @returns 流式 ChatStreamEvent（content / reasoning / tool_call / tool_result）
  */
 export async function* ragChat(
   sessionId: string,
@@ -45,11 +46,5 @@ export async function* ragChat(
   ];
 
   const stream = await agent().stream({ messages }, { streamMode: "messages" });
-
-  for await (const [message] of stream) {
-    if (ToolMessage.isInstance(message)) continue;
-    if (AIMessageChunk.isInstance(message) && message.tool_call_chunks?.length)
-      continue;
-    if (message.content) yield message.content;
-  }
+  yield* parseAgentStream(stream);
 }

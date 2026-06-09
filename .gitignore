@@ -22,3 +22,4 @@ coverage
 apps/server/src/upload/*
 docs
 packages/docker/milvus/volumes/*
+test.ts

@@ -10,6 +10,9 @@ import {
   ThumbsDown,
   MoreHorizontal,
   Brain,
+  Loader2,
+  Check,
+  Search,
 } from "lucide-vue-next";
 import { ref, onMounted, nextTick, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -30,19 +33,29 @@ const chatTitle = computed(
   () => messages.value.find((m) => m.role === "user")?.content || "新对话",
 );
 
-// 模型的回答
-type Block = {
-  type: "think" | "answer"; // 思考块 or 答案块
-  content: string; // 单个块完整原文
-  typed: string; // 已"打字机"渲染出来的部分
-  showThink?: boolean;  // 思考块是否展开
-};
+// 统一到一个 blocks 数组，按到达顺序：think → tool_call → think → answer
+type Block =
+  | {
+      type: "think";
+      content: string;
+      typed: string;
+      showThink: boolean;
+      streaming: boolean;
+    }
+  | { type: "answer"; content: string; typed: string }
+  | {
+      type: "tool_call";
+      id: string;
+      name: string;
+      args?: Record<string, unknown>;
+      status: "calling" | "done";
+    };
 
 type Message = {
   role: "user" | "assistant";
-  content?: string; // 用户消息纯文本
-  blocks?: Block[]; // AI 消息分块（思考/答案交替）
-  timestamp?: string; // 时间戳
+  content?: string;
+  blocks?: Block[];
+  timestamp?: string;
 };
 
 // 对应后端chatHistory 实体
@@ -58,63 +71,58 @@ type ChatHistoryRecord = {
 const messages = ref<Message[]>([]);
 const messagesContainer = ref<HTMLElement | null>(null);
 
-let isInThink = false; //当前是否在思考
 let isTyping = false; //打字机动画是否在跑
 let typingTimeoutId: number | null = null;
 const THINK_DELAY = 5;  // 思考块打字速度（ms/字）
 const ANSWER_DELAY = 30;  // 答案块打字速度（ms/字）
 
-// 向消息追加文本
+// 向 think/answer 块追加文本；空 text 跳过，避免产生空块
 const appendToBlock = (
   messageIndex: number,
   type: "think" | "answer",
   text: string,
 ) => {
+  if (!text) return;
   const msg = messages.value[messageIndex];
+  if (!msg) return;
   if (!msg.blocks) msg.blocks = [];
   const last = msg.blocks[msg.blocks.length - 1];
-  if (last && last.type === type) {
+  if (last && (last.type === "think" || last.type === "answer") && last.type === type) {
     last.content += text;
   } else {
-    msg.blocks.push({
-      type,
-      content: text,
-      typed: "",
-      showThink: type === "think" ? false : undefined,
-    });
+    if (type === "think") {
+      msg.blocks.push({
+        type,
+        content: text,
+        typed: "",
+        showThink: false,
+        streaming: true,
+      });
+    } else {
+      msg.blocks.push({ type, content: text, typed: "" });
+    }
   }
 };
 
-// 从 LLM 输出中识别 <think>...</think> 标签，把"思考"和"回答"分到不同的 Block
-const processChunk = (content: string, messageIndex: number) => {
-  let i = 0;
-  while (i < content.length) {
-    if (isInThink) {
-      const endIdx = content.indexOf("</think>", i);
-      if (endIdx !== -1) {
-        const text = content.slice(i, endIdx);
-        if (text) appendToBlock(messageIndex, "think", text);
-        i = endIdx + 8;
-        isInThink = false;
-      } else {
-        const text = content.slice(i);
-        if (text) appendToBlock(messageIndex, "think", text);
-        i = content.length;
-      }
-    } else {
-      const startIdx = content.indexOf("<think>", i);
-      if (startIdx !== -1) {
-        const text = content.slice(i, startIdx);
-        if (text) appendToBlock(messageIndex, "answer", text);
-        i = startIdx + 7;
-        isInThink = true;
-      } else {
-        const text = content.slice(i);
-        if (text) appendToBlock(messageIndex, "answer", text);
-        i = content.length;
-      }
+// 标记最近一个 think 块结束（content / tool_call 事件到来时调用）
+const markThinkDone = (messageIndex: number) => {
+  const msg = messages.value[messageIndex];
+  if (!msg?.blocks) return;
+  for (let i = msg.blocks.length - 1; i >= 0; i--) {
+    const block = msg.blocks[i];
+    if (block.type === "think") {
+      block.streaming = false;
+      break;
     }
   }
+};
+
+// 工具调用的可视化：参数取一项短展示
+const formatToolArgs = (args?: Record<string, unknown>): string => {
+  if (!args) return "";
+  const first = Object.values(args)[0];
+  if (typeof first === "string") return first.length > 24 ? first.slice(0, 24) + "…" : first;
+  return JSON.stringify(args).slice(0, 24);
 };
 
 // 打字机动画
@@ -131,20 +139,20 @@ const startTyping = (messageIndex: number) => {
     }
 
     let found = false;
-    let activeBlockType: "think" | "answer" = "answer";
+    let delay = ANSWER_DELAY;
     for (let i = 0; i < msg.blocks.length; i++) {  // 顺序遍历所有块
       const block = msg.blocks[i];
+      if (block.type !== "think" && block.type !== "answer") continue;
       if (block.typed.length < block.content.length) {
         const char = block.content[block.typed.length];
         block.typed += char;  // 推进一个字
-        activeBlockType = block.type;
+        delay = block.type === "think" ? THINK_DELAY : ANSWER_DELAY;
         found = true;
         break;  // 一次只打一个字
       }
     }
 
     if (found) {
-      const delay = activeBlockType === "think" ? THINK_DELAY : ANSWER_DELAY;
       typingTimeoutId = window.setTimeout(type, delay);
     } else {
       isTyping = false;
@@ -156,7 +164,6 @@ const startTyping = (messageIndex: number) => {
 };
 
 const buildHistorySkeleton = (records: ChatHistoryRecord[]) => {
-  isInThink = false;
   records.forEach((r) => {
     messages.value.push({
       role: "user",
@@ -171,13 +178,17 @@ const buildHistorySkeleton = (records: ChatHistoryRecord[]) => {
   });
 };
 
+// 历史记录只存了 content 文本（不含 ``），直接当一个 answer 块
 const fillHistoryContent = (records: ChatHistoryRecord[]) => {
   records.forEach((r, i) => {
     const aiIndex = i * 2 + 1;
-    isInThink = false;
-    processChunk(r.answer, aiIndex);
-    for (const block of messages.value[aiIndex].blocks!) {
-      block.typed = block.content;
+    appendToBlock(aiIndex, "answer", r.answer);
+    const msg = messages.value[aiIndex];
+    if (!msg?.blocks) return;
+    for (const block of msg.blocks) {
+      if (block.type === "think" || block.type === "answer") {
+        block.typed = block.content;
+      }
     }
   });
 };
@@ -206,37 +217,85 @@ const sendMessage = async (
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
+  let sseBuffer = "";
+
+  const dispatch = (eventName: string, data: string) => {
+    if (data === "[DONE]") return;
+    let parsed: any;
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      return;
+    }
+    const msg = messages.value[messageIndex];
+    if (!msg) return;
+
+    if (eventName === "content" && parsed.content) {
+      // 进入 answer：把上一段 think 标结束
+      markThinkDone(messageIndex);
+      appendToBlock(messageIndex, "answer", parsed.content);
+      if (!isTyping) startTyping(messageIndex);
+    } else if (eventName === "reasoning" && parsed.delta) {
+      appendToBlock(messageIndex, "think", parsed.delta);
+      if (!isTyping) startTyping(messageIndex);
+    } else if (eventName === "tool_call") {
+      // 准备调用工具：把上一段 think 标结束
+      markThinkDone(messageIndex);
+      if (!msg.blocks) msg.blocks = [];
+      msg.blocks.push({
+        type: "tool_call",
+        id: parsed.id,
+        name: parsed.name,
+        args: parsed.args,
+        status: "calling",
+      });
+    } else if (eventName === "tool_result") {
+      if (!msg.blocks) return;
+      for (let i = msg.blocks.length - 1; i >= 0; i--) {
+        const block = msg.blocks[i];
+        if (block.type === "tool_call" && block.id === parsed.id) {
+          block.status = "done";
+          break;
+        }
+      }
+    }
+  };
+
+  const feed = (raw: string) => {
+    sseBuffer += raw;
+    let boundary = sseBuffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      const rawEvent = sseBuffer.slice(0, boundary);
+      sseBuffer = sseBuffer.slice(boundary + 2);
+      let eventName = "message";
+      let data = "";
+      for (const line of rawEvent.split("\n")) {
+        if (line.startsWith("event: ")) eventName = line.slice(7).trim();
+        else if (line.startsWith("data: ")) data = line.slice(6);
+      }
+      if (data) dispatch(eventName, data);
+      boundary = sseBuffer.indexOf("\n\n");
+    }
+  };
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n");
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          const data = line.slice(6);
-          if (data === "[DONE]") continue;
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed.content) {
-              processChunk(parsed.content, messageIndex);
-              if (!isTyping) startTyping(messageIndex);
-            }
-          } catch (e) {
-            console.error("解析数据失败:", e);
-          }
-        }
-      }
+      feed(decoder.decode(value, { stream: true }));
     }
+    // 流结束：把残留尾巴也处理一下
+    if (sseBuffer.trim()) feed("\n\n");
   } finally {
     const msg = messages.value[messageIndex];
     if (msg && msg.blocks) {
+      // 流结束兜底：把 think/answer 块强制打完，并标记最后 think 为结束
       for (const block of msg.blocks) {
-        if (block.typed.length < block.content.length) {
+        if ((block.type === "think" || block.type === "answer") && block.typed.length < block.content.length) {
           block.typed = block.content;
         }
       }
+      markThinkDone(messageIndex);
     }
     if (typingTimeoutId !== null) {
       clearTimeout(typingTimeoutId);
@@ -364,15 +423,6 @@ const handleSend = async () => {
     scrollToBottom();
   });
 
-  const formData = new FormData();
-  formData.append("question", question);
-  formData.append("sessionId", route.params.id as string);
-  formData.append("mode", String(useKnowledgeBase.value ? 2 : 1));
-
-  files.forEach((file) => {
-    formData.append("files", file);
-  });
-
   try {
     await sendMessage(
       question,
@@ -450,17 +500,24 @@ const handleRemoveFile = () => {
                 class="flex max-w-[80%] flex-col gap-3"
                 :class="message.role === 'user' ? 'items-end' : 'items-start'"
               >
-                <!-- Assistant: render multiple think/answer blocks -->
+                <!-- Assistant: 加载占位符 + blocks 统一 v-for -->
                 <template v-if="message.role === 'assistant'">
+                  <div
+                    v-if="!message.blocks || message.blocks.length === 0"
+                    class="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                  >
+                    <Loader2 class="h-3 w-3 animate-spin" />
+                    <span>mono 正在思考…</span>
+                  </div>
                   <template v-for="(block, bIdx) in message.blocks" :key="bIdx">
                     <!-- Think block -->
-                    <div v-if="block.type === 'think'" class="w-full">
+                    <div v-if="block.type === 'think' && block.content" class="w-full">
                       <button
                         @click="block.showThink = !block.showThink"
                         class="text-xs text-muted-foreground hover:text-foreground mb-1 flex items-center gap-1"
                       >
-                        <span><Brain /></span>
-                        <span>mono 的思考过程</span>
+                        <Brain class="h-3 w-3" />
+                        <span>{{ block.streaming ? "mono 思考中…" : "mono 思考过程" }}</span>
                       </button>
                       <div
                         v-show="block.showThink"
@@ -470,8 +527,38 @@ const handleRemoveFile = () => {
                       </div>
                     </div>
                     <!-- Answer block -->
-                    <div v-else class="rounded-2xl px-4 py-3 bg-muted">
+                    <div
+                      v-else-if="block.type === 'answer' && block.content"
+                      class="rounded-2xl px-4 py-3 bg-muted"
+                    >
                       <MarkdownRenderer :content="block.typed || ''" />
+                    </div>
+                    <!-- Tool call pill -->
+                    <div
+                      v-else-if="block.type === 'tool_call'"
+                      class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
+                      :class="
+                        block.status === 'calling'
+                          ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      "
+                    >
+                      <Loader2
+                        v-if="block.status === 'calling'"
+                        class="h-3 w-3 animate-spin"
+                      />
+                      <Check v-else class="h-3 w-3" />
+                      <Search class="h-3 w-3 opacity-70" />
+                      <span class="font-medium">{{ block.name }}</span>
+                      <span v-if="block.args" class="opacity-70">
+                        {{ formatToolArgs(block.args) }}
+                      </span>
+                      <span
+                        v-if="block.status === 'calling'"
+                        class="opacity-70"
+                        >调用中…</span
+                      >
+                      <span v-else class="opacity-70">完成</span>
                     </div>
                   </template>
                 </template>
