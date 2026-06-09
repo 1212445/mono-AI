@@ -109,12 +109,17 @@ export async function* parseAgentStream(
     // 推理 / 正文：把这一片 content 灌进状态机，按当前模式 yield 出去
     if (typeof message.content === "string" && message.content.length > 0) {
       pending += message.content;
-      for (const ev of flushPending()) yield ev;
+      for (const ev of flushPending()) {
+        // 过滤纯空白 delta：tool_call 阶段 LangChain 常发 " " / "\n" 这类
+        // 尾部空白，下一轮 `` 出现前被状态机当成 content yield 出去
+        if ("delta" in ev && ev.delta.trim() === "") continue;
+        yield ev;
+      }
     }
   }
 
   // 流结束兜底：把滞留的尾巴按当前模式一次性 yield
-  if (pending.length > 0) {
+  if (pending.length > 0 && pending.trim() !== "") {
     yield inThink
       ? { type: "reasoning", delta: pending }
       : { type: "content", delta: pending };

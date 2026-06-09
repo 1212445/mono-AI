@@ -73,8 +73,8 @@ const messagesContainer = ref<HTMLElement | null>(null);
 
 let isTyping = false; //打字机动画是否在跑
 let typingTimeoutId: number | null = null;
-const THINK_DELAY = 5;  // 思考块打字速度（ms/字）
-const ANSWER_DELAY = 30;  // 答案块打字速度（ms/字）
+const THINK_DELAY = 5; // 思考块打字速度（ms/字）
+const ANSWER_DELAY = 30; // 答案块打字速度（ms/字）
 
 // 向 think/answer 块追加文本；空 text 跳过，避免产生空块
 const appendToBlock = (
@@ -87,7 +87,11 @@ const appendToBlock = (
   if (!msg) return;
   if (!msg.blocks) msg.blocks = [];
   const last = msg.blocks[msg.blocks.length - 1];
-  if (last && (last.type === "think" || last.type === "answer") && last.type === type) {
+  if (
+    last &&
+    (last.type === "think" || last.type === "answer") &&
+    last.type === type
+  ) {
     last.content += text;
   } else {
     if (type === "think") {
@@ -121,7 +125,8 @@ const markThinkDone = (messageIndex: number) => {
 const formatToolArgs = (args?: Record<string, unknown>): string => {
   if (!args) return "";
   const first = Object.values(args)[0];
-  if (typeof first === "string") return first.length > 24 ? first.slice(0, 24) + "…" : first;
+  if (typeof first === "string")
+    return first.length > 24 ? first.slice(0, 24) + "…" : first;
   return JSON.stringify(args).slice(0, 24);
 };
 
@@ -140,15 +145,16 @@ const startTyping = (messageIndex: number) => {
 
     let found = false;
     let delay = ANSWER_DELAY;
-    for (let i = 0; i < msg.blocks.length; i++) {  // 顺序遍历所有块
+    for (let i = 0; i < msg.blocks.length; i++) {
+      // 顺序遍历所有块
       const block = msg.blocks[i];
       if (block.type !== "think" && block.type !== "answer") continue;
       if (block.typed.length < block.content.length) {
         const char = block.content[block.typed.length];
-        block.typed += char;  // 推进一个字
+        block.typed += char; // 推进一个字
         delay = block.type === "think" ? THINK_DELAY : ANSWER_DELAY;
         found = true;
-        break;  // 一次只打一个字
+        break; // 一次只打一个字
       }
     }
 
@@ -199,6 +205,7 @@ const sendMessage = async (
   files: File[],
   sessionId: string,
   messageIndex: number,
+  controller: AbortController,
 ) => {
   const formData = new FormData();
   formData.append("question", question);
@@ -211,6 +218,7 @@ const sendMessage = async (
   const res = await fetch("http://localhost:3000/chat", {
     method: "post",
     body: formData,
+    signal: controller.signal,
   });
   if (!res.ok) throw new Error("请求失败");
   if (!res.body) throw new Error("响应体为空");
@@ -218,6 +226,19 @@ const sendMessage = async (
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let sseBuffer = "";
+  let watchdog: number | null = null;
+  let abortedByWatchdog = false;
+
+  // watchdog：25s 内没有任何真实事件就认为连接死了，主动 abort
+  // 配合后端 10s 一次的心跳，只要连接活着这里永远不触发
+  const armWatchdog = () => {
+    if (watchdog !== null) clearTimeout(watchdog);
+    watchdog = window.setTimeout(() => {
+      abortedByWatchdog = true;
+      controller.abort();
+    }, 25000);
+  };
+  armWatchdog();
 
   const dispatch = (eventName: string, data: string) => {
     if (data === "[DONE]") return;
@@ -230,13 +251,28 @@ const sendMessage = async (
     const msg = messages.value[messageIndex];
     if (!msg) return;
 
+    if (eventName === "error") {
+      // 后端流式处理中出错
+      markThinkDone(messageIndex);
+      appendToBlock(
+        messageIndex,
+        "answer",
+        `[模型调用失败] ${parsed.message ?? "未知错误"}`,
+      );
+      armWatchdog();
+      if (!isTyping) startTyping(messageIndex);
+      return;
+    }
+
     if (eventName === "content" && parsed.content) {
       // 进入 answer：把上一段 think 标结束
       markThinkDone(messageIndex);
       appendToBlock(messageIndex, "answer", parsed.content);
+      armWatchdog();
       if (!isTyping) startTyping(messageIndex);
     } else if (eventName === "reasoning" && parsed.delta) {
       appendToBlock(messageIndex, "think", parsed.delta);
+      armWatchdog();
       if (!isTyping) startTyping(messageIndex);
     } else if (eventName === "tool_call") {
       // 准备调用工具：把上一段 think 标结束
@@ -249,6 +285,7 @@ const sendMessage = async (
         args: parsed.args,
         status: "calling",
       });
+      armWatchdog();
     } else if (eventName === "tool_result") {
       if (!msg.blocks) return;
       for (let i = msg.blocks.length - 1; i >= 0; i--) {
@@ -258,6 +295,7 @@ const sendMessage = async (
           break;
         }
       }
+      armWatchdog();
     }
   };
 
@@ -286,12 +324,38 @@ const sendMessage = async (
     }
     // 流结束：把残留尾巴也处理一下
     if (sseBuffer.trim()) feed("\n\n");
+  } catch (err) {
+    // abort / 网络断 / reader 抛错都不覆盖已显示内容，只追加一行说明
+    const isAbort = abortedByWatchdog || (err as Error)?.name === "AbortError";
+    if (isAbort) {
+      markThinkDone(messageIndex);
+      appendToBlock(
+        messageIndex,
+        "answer",
+        "\n\n[连接中断] 长时间未收到响应，请稍后重试",
+      );
+    } else {
+      markThinkDone(messageIndex);
+      appendToBlock(
+        messageIndex,
+        "answer",
+        `\n\n[网络中断] ${(err as Error)?.message ?? "未知错误"}`,
+      );
+    }
+    if (!isTyping) startTyping(messageIndex);
   } finally {
+    if (watchdog !== null) {
+      clearTimeout(watchdog);
+      watchdog = null;
+    }
     const msg = messages.value[messageIndex];
     if (msg && msg.blocks) {
       // 流结束兜底：把 think/answer 块强制打完，并标记最后 think 为结束
       for (const block of msg.blocks) {
-        if ((block.type === "think" || block.type === "answer") && block.typed.length < block.content.length) {
+        if (
+          (block.type === "think" || block.type === "answer") &&
+          block.typed.length < block.content.length
+        ) {
           block.typed = block.content;
         }
       }
@@ -346,9 +410,10 @@ onMounted(async () => {
       timestamp: new Date().toLocaleTimeString(),
     });
     const messageIndex = messages.value.length - 1;
+    const controller = new AbortController();
 
     try {
-      await sendMessage(q, kb, fs, sessionId, messageIndex);
+      await sendMessage(q, kb, fs, sessionId, messageIndex, controller);
       chatStore.allSession.unshift({
         sessionId,
         title: q.slice(0, 20),
@@ -394,7 +459,7 @@ const copyContent = async (mes: Message) => {
   } catch {
     toast.error("复制失败，请手动复制");
   }
-}
+};
 
 const handleSend = async () => {
   const question = inputMessage.value;
@@ -415,6 +480,7 @@ const handleSend = async () => {
   });
 
   const messageIndex = messages.value.length - 1;
+  const controller = new AbortController();
 
   inputMessage.value = "";
   selectedFiles.value = [];
@@ -430,6 +496,7 @@ const handleSend = async () => {
       files,
       route.params.id as string,
       messageIndex,
+      controller,
     );
   } catch (error) {
     console.error("发送消息失败:", error);
@@ -511,13 +578,18 @@ const handleRemoveFile = () => {
                   </div>
                   <template v-for="(block, bIdx) in message.blocks" :key="bIdx">
                     <!-- Think block -->
-                    <div v-if="block.type === 'think' && block.content" class="w-full">
+                    <div
+                      v-if="block.type === 'think' && block.content"
+                      class="w-full"
+                    >
                       <button
                         @click="block.showThink = !block.showThink"
                         class="text-xs text-muted-foreground hover:text-foreground mb-1 flex items-center gap-1"
                       >
                         <Brain class="h-3 w-3" />
-                        <span>{{ block.streaming ? "mono 思考中…" : "mono 思考过程" }}</span>
+                        <span>{{
+                          block.streaming ? "mono 思考中…" : "mono 思考过程"
+                        }}</span>
                       </button>
                       <div
                         v-show="block.showThink"
@@ -553,9 +625,7 @@ const handleRemoveFile = () => {
                       <span v-if="block.args" class="opacity-70">
                         {{ formatToolArgs(block.args) }}
                       </span>
-                      <span
-                        v-if="block.status === 'calling'"
-                        class="opacity-70"
+                      <span v-if="block.status === 'calling'" class="opacity-70"
                         >调用中…</span
                       >
                       <span v-else class="opacity-70">完成</span>
@@ -579,7 +649,8 @@ const handleRemoveFile = () => {
                   v-if="message.role === 'assistant'"
                   class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
                 >
-                  <button @click="copyContent(message)"
+                  <button
+                    @click="copyContent(message)"
                     class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
                   >
                     <Copy class="h-3.5 w-3.5" />

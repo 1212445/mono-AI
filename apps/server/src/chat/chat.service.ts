@@ -55,71 +55,99 @@ export class ChatService {
 
     res.write(`data: ${JSON.stringify({ sessionId: currentSessionId })}\n\n`);
     let fullAnswer = '';
+    let streamError: string | null = null;
 
-    if (modeNumber === 2) {
-      const context = await retrieveDocuments(question, 3, llm, embeddingModel);
-      const answer = ragChat(
-        currentSessionId,
-        question,
-        history,
-        fileContext,
-        context,
-      );
-      for await (const ev of answer) {
-        if (ev.type === 'content') {
-          fullAnswer += ev.delta;
-          res.write(
-            `event: content\ndata: ${JSON.stringify({ content: ev.delta })}\n\n`,
-          );
-        } else if (ev.type === 'reasoning') {
-          res.write(
-            `event: reasoning\ndata: ${JSON.stringify({ delta: ev.delta })}\n\n`,
-          );
-        } else if (ev.type === 'tool_call') {
-          res.write(
-            `event: tool_call\ndata: ${JSON.stringify({ id: ev.id, name: ev.name, args: ev.args })}\n\n`,
-          );
-        } else if (ev.type === 'tool_result') {
-          res.write(
-            `event: tool_result\ndata: ${JSON.stringify({ id: ev.id, name: ev.name })}\n\n`,
-          );
+    // 心跳：每 10s 写一行 SSE 注释，防代理/浏览器因长时间无数据掐连接
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(': heartbeat\n\n');
+      } catch {
+        // 客户端已断，clearInterval 在 finally 里兜底
+      }
+    }, 10000);
+
+    try {
+      if (modeNumber === 2) {
+        const context = await retrieveDocuments(question, 3, llm, embeddingModel);
+        const answer = ragChat(
+          currentSessionId,
+          question,
+          history,
+          fileContext,
+          context,
+        );
+        for await (const ev of answer) {
+          if (ev.type === 'content') {
+            fullAnswer += ev.delta;
+            res.write(
+              `event: content\ndata: ${JSON.stringify({ content: ev.delta })}\n\n`,
+            );
+          } else if (ev.type === 'reasoning') {
+            res.write(
+              `event: reasoning\ndata: ${JSON.stringify({ delta: ev.delta })}\n\n`,
+            );
+          } else if (ev.type === 'tool_call') {
+            res.write(
+              `event: tool_call\ndata: ${JSON.stringify({ id: ev.id, name: ev.name, args: ev.args })}\n\n`,
+            );
+          } else if (ev.type === 'tool_result') {
+            res.write(
+              `event: tool_result\ndata: ${JSON.stringify({ id: ev.id, name: ev.name })}\n\n`,
+            );
+          }
+        }
+      } else {
+        const answer = chat(currentSessionId, question, history, fileContext);
+        for await (const ev of answer) {
+          if (ev.type === 'content') {
+            fullAnswer += ev.delta;
+            res.write(
+              `event: content\ndata: ${JSON.stringify({ content: ev.delta })}\n\n`,
+            );
+          } else if (ev.type === 'reasoning') {
+            res.write(
+              `event: reasoning\ndata: ${JSON.stringify({ delta: ev.delta })}\n\n`,
+            );
+          } else if (ev.type === 'tool_call') {
+            res.write(
+              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+              `event: tool_call\ndata: ${JSON.stringify({ id: ev.id, name: ev.name, args: ev.args })}\n\n`,
+            );
+          } else if (ev.type === 'tool_result') {
+            res.write(
+              `event: tool_result\ndata: ${JSON.stringify({ id: ev.id, name: ev.name })}\n\n`,
+            );
+          }
         }
       }
-    } else {
-      const answer = chat(currentSessionId, question, history, fileContext);
-      for await (const ev of answer) {
-        if (ev.type === 'content') {
-          fullAnswer += ev.delta;
-          res.write(
-            `event: content\ndata: ${JSON.stringify({ content: ev.delta })}\n\n`,
-          );
-        } else if (ev.type === 'reasoning') {
-          res.write(
-            `event: reasoning\ndata: ${JSON.stringify({ delta: ev.delta })}\n\n`,
-          );
-        } else if (ev.type === 'tool_call') {
-          res.write(
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-            `event: tool_call\ndata: ${JSON.stringify({ id: ev.id, name: ev.name, args: ev.args })}\n\n`,
-          );
-        } else if (ev.type === 'tool_result') {
-          res.write(
-            `event: tool_result\ndata: ${JSON.stringify({ id: ev.id, name: ev.name })}\n\n`,
-          );
-        }
+    } catch (err) {
+      streamError = err instanceof Error ? err.message : String(err);
+      console.error('[chat] stream error:', err);
+      try {
+        res.write(
+          `event: error\ndata: ${JSON.stringify({ message: streamError })}\n\n`,
+        );
+      } catch {
+        // 客户端也断了，不必再发
       }
+    } finally {
+      clearInterval(heartbeat);
+      if (!streamError) {
+        await this.chatHistoryService.saveChat(
+          currentSessionId,
+          question,
+          fullAnswer,
+          modeNumber,
+          date,
+        );
+      }
+      try {
+        res.write('data: [DONE]\n\n');
+      } catch {
+        // 客户端已断，无需再发
+      }
+      res.end();
     }
-
-    await this.chatHistoryService.saveChat(
-      currentSessionId,
-      question,
-      fullAnswer,
-      modeNumber,
-      date,
-    );
-
-    res.write('data: [DONE]\n\n');
-    res.end();
   }
 
   async findBySessionId(sessionId: string) {
