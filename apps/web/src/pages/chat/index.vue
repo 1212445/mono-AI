@@ -33,26 +33,16 @@ const goHome = () => {
 const handleSend = async () => {
   const question = inputMessage.value;
   const files = selectedFiles.value;
-
   if (!question.trim()) return;
-
   inputMessage.value = "";
   selectedFiles.value = [];
-
+  
   await messageListRef.value?.send(
     question,
     useKnowledgeBase.value,
     files,
     route.params.id as string,
   );
-};
-
-const handleAttach = (files: File[]) => {
-  selectedFiles.value = files;
-};
-
-const handleRemoveFile = () => {
-  selectedFiles.value = [];
 };
 
 onMounted(async () => {
@@ -118,9 +108,8 @@ onMounted(async () => {
           <ChatInput
             v-model="inputMessage"
             v-model:useKnowledgeBase="useKnowledgeBase"
+            v-model:files="selectedFiles"
             @send="handleSend"
-            @attach="handleAttach"
-            @removeFile="handleRemoveFile"
           />
           <p class="mt-3 text-center text-xs text-muted-foreground/60">
             AI 生成的内容可能不准确或不当。

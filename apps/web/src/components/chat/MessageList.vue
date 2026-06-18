@@ -18,24 +18,24 @@ import server from "@/utils/axios.config";
 type Block =
   | {
       type: "think";
-      content: string;
-      typed: string;
+      content: string; //完整内容
+      typed: string; //"打字机"已显示的内容
       showThink: boolean;
       streaming: boolean;
     }
   | { type: "answer"; content: string; typed: string }
   | {
       type: "tool_call";
-      id: string;
-      name: string;
-      args?: Record<string, unknown>;
-      status: "calling" | "done";
+      id: string; //工具调用的 ID
+      name: string; //工具名（如搜索）
+      args?: Record<string, unknown>; //工具参数
+      status: "calling" | "done"; //调用状态
     };
 
 type Message = {
   role: "user" | "assistant";
-  content?: string;
-  blocks?: Block[];
+  content?: string; //user
+  blocks?: Block[]; //ai
   timestamp?: string;
 };
 
@@ -56,7 +56,15 @@ let typingTimeoutId: number | null = null;
 const THINK_DELAY = 5; // 思考块打字速度（ms/字）
 const ANSWER_DELAY = 30; // 答案块打字速度（ms/字）
 
-// 向 think/answer 块追加文本；空 text 跳过，避免产生空块
+/**
+ * 往某条 assistant 消息的 think 或 answer 块里追加文本
+ * - 从尾部向前查找：跳过 tool_call（视为不打断流的占位），找到最近的同类型块就续写
+ * - 遇到 tool_call 以外的、非匹配的块就停，避免跨越 think/answer 边界错误合并
+ *   （例如 [think1, answer1, tool_call, think2] 再来 think 时只会追加到 think2，不会回到 think1）
+ * @param messageIndex 消息下标
+ * @param type block 类型
+ * @param text 要追加的文本
+ */
 const appendToBlock = (
   messageIndex: number,
   type: "think" | "answer",
@@ -66,29 +74,33 @@ const appendToBlock = (
   const msg = messages.value[messageIndex];
   if (!msg) return;
   if (!msg.blocks) msg.blocks = [];
-  const last = msg.blocks[msg.blocks.length - 1];
-  if (
-    last &&
-    (last.type === "think" || last.type === "answer") &&
-    last.type === type
-  ) {
-    last.content += text;
-  } else {
-    if (type === "think") {
-      msg.blocks.push({
-        type,
-        content: text,
-        typed: "",
-        showThink: false,
-        streaming: true,
-      });
-    } else {
-      msg.blocks.push({ type, content: text, typed: "" });
+  for (let i = msg.blocks.length - 1; i >= 0; i--) {
+    const block = msg.blocks[i];
+    if (block.type === "tool_call") continue;
+    if (block.type === type) {
+      block.content += text;
+      return;
     }
+    break;
+  }
+  if (type === "think") {
+    msg.blocks.push({
+      type,
+      content: text,
+      typed: "",
+      showThink: false,
+      streaming: true,
+    });
+  } else {
+    msg.blocks.push({ type, content: text, typed: "" });
   }
 };
 
-// 标记最近一个 think 块结束（content / tool_call 事件到来时调用）
+/**
+ * 把消息里 最近的一个 think 块 标记为 streaming = false
+ * 一旦 streaming = false ，模板里"mono 思考中…"就会变成"mono 思考过程"
+ * @param messageIndex 消息的序号
+ */
 const markThinkDone = (messageIndex: number) => {
   const msg = messages.value[messageIndex];
   if (!msg?.blocks) return;
@@ -209,17 +221,18 @@ const sendMessage = async (
   let watchdog: number | null = null;
   let abortedByWatchdog = false;
 
-  // watchdog：25s 内没有任何真实事件就认为连接死了，主动 abort
+  // watchdog：20s 内没有任何真实事件就认为连接死了，主动 abort
   // 配合后端 10s 一次的心跳，只要连接活着这里永远不触发
   const armWatchdog = () => {
     if (watchdog !== null) clearTimeout(watchdog);
     watchdog = window.setTimeout(() => {
       abortedByWatchdog = true;
       controller.abort();
-    }, 25000);
+    }, 20000);
   };
   armWatchdog();
 
+  //根据 SSE 事件的类型（eventName），分发到对应的处理逻辑 。
   const dispatch = (eventName: string, data: string) => {
     if (data === "[DONE]") return;
     let parsed: any;
@@ -237,13 +250,12 @@ const sendMessage = async (
       appendToBlock(
         messageIndex,
         "answer",
-        `[模型调用失败] ${parsed.message ?? "未知错误"}`,
+        `[mono调用失败] ${parsed.message ?? "请稍后再试"}`,
       );
       armWatchdog();
       if (!isTyping.value) startTyping(messageIndex);
       return;
     }
-
     if (eventName === "content" && parsed.content) {
       // 进入 answer：把上一段 think 标结束
       markThinkDone(messageIndex);
@@ -279,6 +291,7 @@ const sendMessage = async (
     }
   };
 
+  // 把字节流中的多个 SSE 事件"喂"给 dispatch
   const feed = (raw: string) => {
     sseBuffer += raw;
     let boundary = sseBuffer.indexOf("\n\n");
@@ -305,7 +318,7 @@ const sendMessage = async (
     // 流结束：把残留尾巴也处理一下
     if (sseBuffer.trim()) feed("\n\n");
   } catch (err) {
-    // abort / 网络断 / reader 抛错都不覆盖已显示内容，只追加一行说明
+    // abort / 网络中断 / reader 抛错都不覆盖已显示内容，只追加一行说明
     const isAbort = abortedByWatchdog || (err as Error)?.name === "AbortError";
     if (isAbort) {
       markThinkDone(messageIndex);
@@ -527,9 +540,7 @@ defineExpose({ messages, send, loadHistory });
             v-else
             class="rounded-2xl px-4 py-3 bg-primary text-primary-foreground"
           >
-            <p
-              class="text-sm md:text-base leading-relaxed whitespace-pre-wrap"
-            >
+            <p class="text-sm md:text-base leading-relaxed whitespace-pre-wrap">
               {{ message.content }}
             </p>
           </div>
@@ -560,10 +571,7 @@ defineExpose({ messages, send, loadHistory });
               <MoreHorizontal class="h-3.5 w-3.5" />
             </button>
           </div>
-          <span
-            v-if="message.timestamp"
-            class="text-xs text-muted-foreground"
-          >
+          <span v-if="message.timestamp" class="text-xs text-muted-foreground">
             {{ message.timestamp }}
           </span>
         </div>

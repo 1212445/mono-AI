@@ -37,11 +37,13 @@ const inputMessage = ref("");
 const useKnowledgeBase = ref(false);
 const selectedFiles = ref<File[]>([]);
 
+/**
+ * 新对话跳转
+ */
 const handleSend = async () => {
   if (!inputMessage.value.trim()) return;
 
   const sessionId = crypto.randomUUID();
-
   chatStore.setCurrentChat(
     sessionId,
     inputMessage.value,
@@ -49,27 +51,17 @@ const handleSend = async () => {
     useKnowledgeBase.value,
     selectedFiles.value,
   );
-
-  inputMessage.value = "";
-  selectedFiles.value = [];
-
   router.push(`/chat/${sessionId}`);
 };
 
+/**
+ * 点击卡片跳转
+ * @param description 卡片描述词
+ */
 const handleCardClick = (description: string) => {
   const sessionId = crypto.randomUUID();
-
   chatStore.setCurrentChat(sessionId, description, "", false, []);
-
   router.push(`/chat/${sessionId}`);
-};
-
-const handleAttach = (files: File[]) => {
-  selectedFiles.value = files;
-};
-
-const handleRemoveFile = () => {
-  selectedFiles.value = [];
 };
 </script>
 
@@ -141,10 +133,8 @@ const handleRemoveFile = () => {
             <ChatInput
               v-model="inputMessage"
               v-model:useKnowledgeBase="useKnowledgeBase"
-              placeholder="今天有什么可以帮助您的？"
+              v-model:files="selectedFiles"
               @send="handleSend"
-              @attach="handleAttach"
-              @removeFile="handleRemoveFile"
             />
           </div>
 

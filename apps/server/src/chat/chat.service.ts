@@ -8,7 +8,11 @@ import {
   dropCollection,
   type ChatHistory,
 } from '@rag/ai-core';
-import { extractFileContent } from 'src/utils/file.util';
+import {
+  extractFileContent,
+  isImageFile,
+  toImageDataUrl,
+} from 'src/utils/file.util';
 import { ChatHistoryService } from '../chat-history/chat-history.service';
 import { ChatSessionService } from '../chat-session/chat-session.service';
 import { ChatDto } from './dto/chat.dto';
@@ -33,11 +37,16 @@ export class ChatService {
     const embeddingModel = embedding();
     const date = new Date();
     let fileContext = '';
+    const images: string[] = [];
     if (files && files.length > 0) {
       for (let index = 0; index < files.length; index++) {
         const file = files[index];
-        const content = await extractFileContent(file);
-        fileContext += `\n--- 文件${index + 1}: ${file.originalname} ---\n${content}\n`;
+        if (isImageFile(file)) {
+          images.push(toImageDataUrl(file));
+        } else {
+          const content = await extractFileContent(file);
+          fileContext += `\n--- 文件${index + 1}: ${file.originalname} ---\n${content}\n`;
+        }
       }
     }
     const tt = await this.findBySessionId(currentSessionId);
@@ -68,13 +77,19 @@ export class ChatService {
 
     try {
       if (modeNumber === 2) {
-        const context = await retrieveDocuments(question, 3, llm, embeddingModel);
+        const context = await retrieveDocuments(
+          question,
+          3,
+          llm,
+          embeddingModel,
+        );
         const answer = ragChat(
           currentSessionId,
           question,
           history,
           fileContext,
           context,
+          images.length > 0 ? images : undefined,
         );
         for await (const ev of answer) {
           if (ev.type === 'content') {
@@ -97,7 +112,13 @@ export class ChatService {
           }
         }
       } else {
-        const answer = chat(currentSessionId, question, history, fileContext);
+        const answer = chat(
+          currentSessionId,
+          question,
+          history,
+          fileContext,
+          images.length > 0 ? images : undefined,
+        );
         for await (const ev of answer) {
           if (ev.type === 'content') {
             fullAnswer += ev.delta;

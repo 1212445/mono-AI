@@ -3,66 +3,47 @@ import { computed, ref } from "vue";
 import { Switch } from "@/components/ui/switch";
 import { Send, Paperclip, X } from "lucide-vue-next";
 
-const props = defineProps<{
-  placeholder?: string;
-}>();
 const modelValue = defineModel<string>();
 const useKnowledgeBase = defineModel<boolean>("useKnowledgeBase");
+const files = defineModel<File[]>("files", { default: () => [] });
 const MAX_FILE_COUNT = 5;
 
 const emit = defineEmits<{
   send: [];
-  attach: [files: File[]];
-  removeFile: [index: number];
 }>();
 
 const mode = computed(() => {
-  return useKnowledgeBase.value ? '知识库' : '快速';
-})
+  return useKnowledgeBase.value ? "知识库" : "快速";
+});
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
-const selectedFiles = ref<File[]>([]);
 
 const handleSend = () => {
   if (!modelValue.value?.trim()) return;
   emit("send");
 };
 
-const handleAttach = () => {
-  fileInputRef.value?.click();
-};
-
 const handleFileChange = (event: Event) => {
   const target = event.target as HTMLInputElement;
-  const files = target.files;
-  
-  if (!files) return;
-  
-  const newFiles = Array.from(files);
-  const remainingSlots = MAX_FILE_COUNT - selectedFiles.value.length;
-  
+  const newFiles = Array.from(target.files ?? []);
+
+  const remainingSlots = MAX_FILE_COUNT - files.value.length;
   if (newFiles.length > remainingSlots) {
     alert(`最多只能上传 ${MAX_FILE_COUNT} 个文件`);
   }
-  
-  const filesToAdd = newFiles.slice(0, remainingSlots);
-  selectedFiles.value = [...selectedFiles.value, ...filesToAdd];
-  
-  if (selectedFiles.value.length > 0) {
-    emit("attach", selectedFiles.value);
-  }
-  
+
+  files.value = [...files.value, ...newFiles.slice(0, remainingSlots)];
+
   if (fileInputRef.value) {
     fileInputRef.value.value = "";
   }
 };
 
 const removeFile = (index: number) => {
-  selectedFiles.value = selectedFiles.value.filter((_, i) => i !== index);
-  emit("removeFile", index);
+  files.value = files.value.filter((_, i) => i !== index);
 };
 
-const canAddMore = () => selectedFiles.value.length < MAX_FILE_COUNT;
+const canAddMore = () => files.value.length < MAX_FILE_COUNT;
 </script>
 
 <template>
@@ -71,15 +52,13 @@ const canAddMore = () => selectedFiles.value.length < MAX_FILE_COUNT;
       ref="fileInputRef"
       type="file"
       multiple
+      accept="image/jpeg,image/png,image/webp,image/gif,.pdf,.docx,.pptx,.xlsx,.csv,.md,.txt,.json"
       class="hidden"
       @change="handleFileChange"
     />
-    <div
-      v-if="selectedFiles.length > 0"
-      class="mb-2 ml-4 mr-4 flex flex-wrap gap-2"
-    >
+    <div v-if="files.length > 0" class="mb-2 ml-4 mr-4 flex flex-wrap gap-2">
       <div
-        v-for="(file, index) in selectedFiles"
+        v-for="(file, index) in files"
         :key="index"
         class="flex items-center gap-2 rounded-lg bg-muted px-3 py-2"
       >
@@ -113,13 +92,13 @@ const canAddMore = () => selectedFiles.value.length < MAX_FILE_COUNT;
             v-model.lazy.trim="modelValue"
             @keyup.enter="handleSend"
             type="text"
-            :placeholder="placeholder"
+            placeholder="今天有什么可以帮助您的？"
             class="w-full bg-transparent py-4 text-base md:text-lg placeholder:text-muted-foreground/60 focus:outline-none"
           />
         </div>
         <button
           v-if="canAddMore()"
-          @click="handleAttach"
+          @click="fileInputRef?.click()"
           class="flex h-12 w-12 items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
         >
           <Paperclip class="h-5 w-5" />

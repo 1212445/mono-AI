@@ -1,6 +1,6 @@
 import { createAgent } from "langchain";
 import { model } from "./chat.model.js";
-import { searchTool } from "./agent.tool.js";
+import { searchTool, codeTool } from "./agent.tool.js";
 
 export type AppAgent = ReturnType<typeof createAgent>;
 
@@ -9,7 +9,7 @@ export function agent(): AppAgent {
   if (_agent) return _agent;
   _agent = createAgent({
     model: model(),
-    tools: [searchTool],
+    tools: [searchTool, codeTool],
     systemPrompt: `你是 mono 世界上最棒的AI助手，全领域 AI 专家。`,
   });
   return _agent;

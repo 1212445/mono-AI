@@ -1,7 +1,7 @@
 import { manageContext, historyToMessages, type ChatHistory } from "./memory.js";
 import { HumanMessage } from "langchain";
 import { agent } from "./agent.model.js";
-import { parseAgentStream } from "./common.chat.js";
+import { buildUserMessage, parseAgentStream } from "./common.chat.js";
 
 /**
  * RAG 对话：基于检索资料 + 历史摘要 + 文件内容生成回答
@@ -10,6 +10,7 @@ import { parseAgentStream } from "./common.chat.js";
  * @param history 历史对话
  * @param fileContext 用户上传的文件内容
  * @param context 检索得到的资料片段
+ * @param images 用户上传的图片（data URL 列表），挂到最后一轮 user 消息
  * @returns 流式 ChatStreamEvent（content / reasoning / tool_call / tool_result）
  */
 export async function* ragChat(
@@ -18,6 +19,7 @@ export async function* ragChat(
   history: ChatHistory[],
   fileContext: string,
   context: string[],
+  images?: string[],
 ) {
   const { summaryBlock, recentHistory } = await manageContext(
     sessionId,
@@ -42,7 +44,7 @@ export async function* ragChat(
   const messages = [
     contextMsg,
     ...historyToMessages(recentHistory),
-    new HumanMessage(input),
+    buildUserMessage(input, images),
   ];
 
   const stream = await agent().stream({ messages }, { streamMode: "messages" });

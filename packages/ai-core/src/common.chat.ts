@@ -6,6 +6,7 @@ import {
   ToolMessage,
   type BaseMessage,
 } from "langchain";
+import type { MessageContent } from "@langchain/core/messages";
 import { agent } from "./agent.model.js";
 
 export type ChatStreamEvent =
@@ -17,7 +18,7 @@ export type ChatStreamEvent =
       name: string;
       args: Record<string, unknown>;
     }
-  | { type: "tool_result"; id: string; name: string };
+  | { type: "tool_result"; id: string; name: string; artifact?: unknown };
 
 /**
  * 把 agent 的流式消息流解析成统一的 ChatStreamEvent。
@@ -76,6 +77,7 @@ export async function* parseAgentStream(
         type: "tool_result",
         id: message.tool_call_id,
         name: message.name ?? "",
+        artifact: message.artifact,
       };
       continue;
     }
@@ -127,9 +129,50 @@ export async function* parseAgentStream(
 }
 
 /**
+ * 解析 data URL（`data:image/png;base64,iVBOR...`），拆出 mime 和纯 base64。
+ * 给 ChatOpenAI 的 legacy Base64ContentBlock 用（需要 snake_case mime_type + source_type）。
+ */
+function parseDataUrl(dataUrl: string): { mime_type: string; data: string } {
+  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+  if (!match || !match[1] || !match[2]) throw new Error("无效的图片 data URL");
+  return { mime_type: match[1], data: match[2] };
+}
+
+/**
+ * 构造最后那条用户消息：有图片时用 multimodal content array，否则纯文本。
+ *
+ * 注意：这里必须用 ChatOpenAI 的 legacy Base64ContentBlock 形状
+ * （`source_type: "base64"` + snake_case `mime_type`），
+ * `@langchain/openai` 的 `isDataContentBlock` 才认这个形状，才会调用
+ * `convertToProviderContentBlock` 转成 OpenAI 的 `image_url` 协议。
+ * 用新版 Multimodal.Image（`{type:'image', mimeType, data}`）会绕过转换器，
+ * 原样发到 MiniMax，API 不识别。
+ */
+export function buildUserMessage(
+  input: string,
+  images?: string[],
+): HumanMessage {
+  if (!images || images.length === 0) return new HumanMessage(input);
+  const content: MessageContent = [
+    { type: "text", text: input },
+    ...images.map((url) => {
+      const { mime_type, data } = parseDataUrl(url);
+      return {
+        type: "image",
+        source_type: "base64",
+        mime_type,
+        data,
+      };
+    }),
+  ];
+  return new HumanMessage({ content });
+}
+
+/**
  * @param input 问题
  * @param history 历史对话
  * @param fileContext 文件
+ * @param images 用户上传的图片（data URL 列表）
  * @returns 普通对话输出
  */
 export async function* chat(
@@ -137,6 +180,7 @@ export async function* chat(
   input: string,
   history: ChatHistory[],
   fileContext: string,
+  images?: string[],
 ) {
   const { summaryBlock, recentHistory } = await manageContext(
     sessionId,
@@ -158,7 +202,7 @@ export async function* chat(
   const messages = [
     ...(contextMsg ? [contextMsg] : []),
     ...historyToMessages(recentHistory),
-    new HumanMessage(input),
+    buildUserMessage(input, images),
   ];
 
   const stream = await agent().stream({ messages }, { streamMode: "messages" });
