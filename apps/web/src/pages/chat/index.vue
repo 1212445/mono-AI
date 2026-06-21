@@ -3,7 +3,7 @@ import AppSidebar from "@/components/aside/AppSidebar.vue";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import { ArrowLeft } from "lucide-vue-next";
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ChatInput from "@/components/input/index.vue";
 import { useChatStore } from "@/store";
@@ -45,14 +45,16 @@ const handleSend = async () => {
   );
 };
 
-onMounted(async () => {
-  const sessionId = route.params.id as string;
-
+const initChat = async (sessionId: string, isFirstMount: boolean) => {
   // 第一步：永远先拉历史
   await messageListRef.value?.loadHistory(sessionId);
 
-  // 第二步：只有从 home 跳过来的新对话，才发首问
-  if (chatStore.currentSessionId === sessionId && chatStore.currentQuestion) {
+  // 第二步：只有首次挂载 + 从 home 跳过来的新对话（store 还存着 currentQuestion），才发首问
+  if (
+    isFirstMount &&
+    chatStore.currentSessionId === sessionId &&
+    chatStore.currentQuestion
+  ) {
     const {
       currentQuestion: q,
       useKnowledgeBase: kb,
@@ -74,7 +76,25 @@ onMounted(async () => {
       toast.error("发送消息失败");
     }
   }
+};
+
+onMounted(() => {
+  initChat(route.params.id as string, true);
 });
+
+// 路由参数变化（/chat/A → /chat/B）时重新加载历史。
+// 同路由不同参数会复用组件实例，onMounted 不再触发，需要靠 watch 兜底。
+watch(
+  () => route.params.id,
+  async (newId, oldId) => {
+    if (!newId || newId === oldId) return;
+    // 切 session 时清空输入，避免上一个会话的草稿串味
+    inputMessage.value = "";
+    useKnowledgeBase.value = false;
+    selectedFiles.value = [];
+    await initChat(newId as string, false);
+  },
+);
 </script>
 
 <template>

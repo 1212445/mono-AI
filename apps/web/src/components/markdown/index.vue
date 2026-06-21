@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
+import DOMPurify from 'dompurify'
 import 'highlight.js/styles/github.css'
 
 const md: MarkdownIt = new MarkdownIt({
@@ -26,7 +27,9 @@ const props = defineProps<{
   content: string
 }>()
 
-const renderedContent = computed(() => md.render(props.content || ''))
+const renderedContent = computed(() =>
+  DOMPurify.sanitize(md.render(props.content || '')),
+)
 </script>
 
 <template>
