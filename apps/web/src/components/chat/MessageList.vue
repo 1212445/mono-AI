@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, nextTick } from "vue";
+import { ref, nextTick, onUnmounted, watch } from "vue";
+import { useRoute } from "vue-router";
 import MarkdownRenderer from "@/components/markdown/index.vue";
 import {
   Copy,
@@ -60,11 +61,32 @@ type ChatHistoryRecord = {
 
 const messages = ref<Message[]>([]);
 const messagesContainer = ref<HTMLElement | null>(null);
+const route = useRoute();
 
 const isTyping = ref(false);
 let typingTimeoutId: number | null = null;
 const THINK_DELAY = 5; // 思考块打字速度（ms/字）
 const ANSWER_DELAY = 30; // 答案块打字速度（ms/字）
+
+// 当前在飞的 SSE controller + 中止原因映射。
+// 中止原因区分："user" = 用户主动（发新消息/切 session/卸载），"watchdog" = 超时。
+// 主动中止时不追加错误块，避免误导用户；watchdog / 网络中断才显示。
+let currentController: AbortController | null = null;
+const abortReasons = new WeakMap<AbortController, "user" | "watchdog">();
+
+/**
+ * 主动中止当前在飞的 SSE 请求。
+ * - 同 session 发新消息：send() 开头调用
+ * - 路由切换：watch(() => route.params.id) 触发
+ * - 组件卸载：onUnmounted 触发
+ * - 外部调用：defineExpose 暴露的 abort()
+ */
+function abort() {
+  if (!currentController) return;
+  abortReasons.set(currentController, "user");
+  currentController.abort();
+  currentController = null;
+}
 
 /**
  * 往某条 assistant 消息的 think 或 answer 块里追加文本
@@ -242,14 +264,13 @@ const sendMessage = async (
   const decoder = new TextDecoder();
   let sseBuffer = "";
   let watchdog: number | null = null;
-  let abortedByWatchdog = false;
 
   // watchdog：20s 内没有任何真实事件就认为连接死了，主动 abort
   // 配合后端 10s 一次的心跳，只要连接活着这里永远不触发
   const armWatchdog = () => {
     if (watchdog !== null) clearTimeout(watchdog);
     watchdog = window.setTimeout(() => {
-      abortedByWatchdog = true;
+      abortReasons.set(controller, "watchdog");
       controller.abort();
     }, 20000);
   };
@@ -342,15 +363,22 @@ const sendMessage = async (
     // 流结束：把残留尾巴也处理一下
     if (sseBuffer.trim()) feed("\n\n");
   } catch (err) {
-    // abort / 网络中断 / reader 抛错都不覆盖已显示内容，push 一个独立 error 块
-    const isAbort = abortedByWatchdog || (err as Error)?.name === "AbortError";
-    markThinkDone(messageIndex);
-    pushErrorBlock(
-      messageIndex,
-      isAbort
-        ? "连接中断：长时间未收到响应，请稍后重试"
-        : `网络中断：${(err as Error)?.message ?? "未知错误"}`,
-    );
+    // 区分主动 abort 和被动中断：用户主动停止（发新消息/切 session/卸载）不显示错误，
+    // 保留已显示内容；只有 watchdog 超时或网络中断才追加 error 块。
+    const reason = abortReasons.get(controller);
+    if (reason === "user") {
+      markThinkDone(messageIndex);
+      // 不追加 error 块，finally 仍会跑清理（typed 推到 content、滚到底部等）
+    } else {
+      markThinkDone(messageIndex);
+      const isAbort = reason === "watchdog" || (err as Error)?.name === "AbortError";
+      pushErrorBlock(
+        messageIndex,
+        isAbort
+          ? "连接中断：长时间未收到响应，请稍后重试"
+          : `网络中断：${(err as Error)?.message ?? "未知错误"}`,
+      );
+    }
   } finally {
     if (watchdog !== null) {
       clearTimeout(watchdog);
@@ -403,6 +431,9 @@ async function send(
   files: File[],
   sessionId: string,
 ): Promise<void> {
+  // 同 session 内发新消息时，先停掉上一条未完成的流（保留已显示内容，不显示错误）
+  abort();
+
   messages.value.push({
     role: "user",
     content: question,
@@ -416,6 +447,7 @@ async function send(
 
   const messageIndex = messages.value.length - 1;
   const controller = new AbortController();
+  currentController = controller;
 
   await nextTick();
   scrollToBottom();
@@ -453,7 +485,15 @@ async function loadHistory(sessionId: string): Promise<void> {
   scrollToBottom();
 }
 
-defineExpose({ messages, send, loadHistory });
+// 路由切换时 abort 老的流（防止老 session 的 fetch 继续污染新 session 的 messages）
+watch(() => route.params.id, (_newId, oldId) => {
+  if (oldId && _newId !== oldId) abort();
+});
+
+// 组件卸载时 abort 释放资源（SSE 连接、watchdog timer）
+onUnmounted(() => abort());
+
+defineExpose({ messages, send, loadHistory, abort });
 </script>
 
 <template>
