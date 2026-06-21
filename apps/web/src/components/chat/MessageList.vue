@@ -10,6 +10,7 @@ import {
   Loader2,
   Check,
   Search,
+  AlertCircle,
 } from "lucide-vue-next";
 import { toast } from "vue-sonner";
 import { copyToClipboard } from "@/utils/clip";
@@ -38,7 +39,8 @@ type Block =
       args?: Record<string, unknown>; //工具参数
       status: "calling" | "done"; //调用状态
       result?: CodeArtifact[]; //工具返回的可视化产物（code_sandbox 用）
-    };
+    }
+  | { type: "error"; content: string; typed: string }; //独立的错误提示气泡（不覆盖已显示内容）
 
 type Message = {
   role: "user" | "assistant";
@@ -102,6 +104,19 @@ const appendToBlock = (
   } else {
     msg.blocks.push({ type, content: text, typed: "" });
   }
+};
+
+/**
+ * 往 assistant 消息里 push 一个独立 error 块。
+ * 错误块不走打字机（typed = content 立即显示），用于 fetch/reader/SSE error 等系统级失败。
+ * @param messageIndex 消息下标
+ * @param content 错误提示文案
+ */
+const pushErrorBlock = (messageIndex: number, content: string) => {
+  const msg = messages.value[messageIndex];
+  if (!msg) return;
+  if (!msg.blocks) msg.blocks = [];
+  msg.blocks.push({ type: "error", content, typed: content });
 };
 
 /**
@@ -255,13 +270,11 @@ const sendMessage = async (
     if (eventName === "error") {
       // 后端流式处理中出错
       markThinkDone(messageIndex);
-      appendToBlock(
+      pushErrorBlock(
         messageIndex,
-        "answer",
-        `[mono调用失败] ${parsed.message ?? "请稍后再试"}`,
+        `mono 调用失败：${parsed.message ?? "请稍后再试"}`,
       );
       armWatchdog();
-      if (!isTyping.value) startTyping(messageIndex);
       return;
     }
     if (eventName === "content" && parsed.content) {
@@ -329,24 +342,15 @@ const sendMessage = async (
     // 流结束：把残留尾巴也处理一下
     if (sseBuffer.trim()) feed("\n\n");
   } catch (err) {
-    // abort / 网络中断 / reader 抛错都不覆盖已显示内容，只追加一行说明
+    // abort / 网络中断 / reader 抛错都不覆盖已显示内容，push 一个独立 error 块
     const isAbort = abortedByWatchdog || (err as Error)?.name === "AbortError";
-    if (isAbort) {
-      markThinkDone(messageIndex);
-      appendToBlock(
-        messageIndex,
-        "answer",
-        "\n\n[连接中断] 长时间未收到响应，请稍后重试",
-      );
-    } else {
-      markThinkDone(messageIndex);
-      appendToBlock(
-        messageIndex,
-        "answer",
-        `\n\n[网络中断] ${(err as Error)?.message ?? "未知错误"}`,
-      );
-    }
-    if (!isTyping.value) startTyping(messageIndex);
+    markThinkDone(messageIndex);
+    pushErrorBlock(
+      messageIndex,
+      isAbort
+        ? "连接中断：长时间未收到响应，请稍后重试"
+        : `网络中断：${(err as Error)?.message ?? "未知错误"}`,
+    );
   } finally {
     if (watchdog !== null) {
       clearTimeout(watchdog);
@@ -428,13 +432,8 @@ async function send(
   } catch (error) {
     console.error("发送消息失败:", error);
     toast.error("发送消息失败");
-    messages.value[messageIndex].blocks = [
-      {
-        type: "answer",
-        content: "抱歉，发生了错误，请稍后重试。",
-        typed: "抱歉，发生了错误，请稍后重试。",
-      },
-    ];
+    // 不再覆盖 blocks：push 一个独立的 error 块，保留 SSE 已显示的 think/answer/tool_call
+    pushErrorBlock(messageIndex, "抱歉，发生了错误，请稍后重试。");
   }
 }
 
@@ -580,6 +579,16 @@ defineExpose({ messages, send, loadHistory });
                       输出过大，已截断
                     </div>
                   </div>
+                </div>
+              </div>
+              <!-- Error block: 独立气泡，不覆盖已显示内容 -->
+              <div
+                v-else-if="block.type === 'error' && block.content"
+                class="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400"
+              >
+                <AlertCircle class="h-4 w-4 mt-0.5 shrink-0" />
+                <div class="flex-1">
+                  <MarkdownRenderer :content="block.typed || ''" />
                 </div>
               </div>
             </template>

@@ -20,25 +20,6 @@ return { message: '上传成功', data: saved };
 
 ## 四、前端 `apps/web` 问题
 
-### D6. `MessageList.vue:421-426` 错误兜底覆盖 SSE 已显示内容【P2】
-
-```ts
-messages.value[messageIndex].blocks = [{ type: "answer", content: "抱歉，发生了错误...", typed: "..." }];
-```
-
-- 在外层 catch 中直接把 blocks 替换为单条 answer
-- 但 SSE 流如果已经部分输出（typed != content），会被擦掉
-- **建议**：append 一个错误块而不是覆盖。
-
-### D7. `axios.config.ts` 无拦截器逻辑【P1】
-
-```ts
-server.interceptors.request.use(config => config, error => Promise.reject(error));
-server.interceptors.response.use(response => response, error => Promise.reject(error));
-```
-
-拦截器空转，对 4xx/5xx 没有任何统一处理（toast / 401 跳转）。而 `MessageList.vue` 又自己 fetch 不走 axios——拦截器形同虚设。
-
 ### D8. `router/index.ts:30-56` 路由守卫只跑一次【P1】
 
 ```ts
@@ -57,15 +38,6 @@ router.beforeEach(async (_to, _from, next) => {
 - 侧边栏依赖 `chatStore.allSession`，但只在 `chat/index.vue:67-71` 手动 `unshift`，且**只在新对话首次发送时**——历史路由过来、刷新、跨页都不更新
 - **建议**：把 `allSession` 拉取做成响应式（如 composable 监听 sessionId 变化）。
 
-### D9. `store/index.ts:9` 类型不一致【P2】
-
-```ts
-interface session { sessionId: string; title: string; lastActiveTime: Date; }
-```
-
-- API 返回 `string`（ISO 时间）
-- home `handleSend` / chat `onMounted` 都手动 `new Date()` 包装
-- 类型与运行时不一致
 
 ### D10. 前端 `chat/index.vue:33-46` 与 home `handleSend` 风格分裂【P2】
 
