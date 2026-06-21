@@ -17,6 +17,7 @@ const chatStore = useChatStore();
 const inputMessage = ref("");
 const useKnowledgeBase = ref(false);
 const selectedFiles = ref<File[]>([]);
+const isSubmitting = ref(false);
 
 const messageListRef = ref<InstanceType<typeof MessageList> | null>(null);
 
@@ -30,19 +31,30 @@ const goHome = () => {
   router.push("/");
 };
 
+// 中断当前在飞的 SSE：父组件不直接清 isSubmitting，让 send() 在 finally 自然 resolve 时清掉
+const handleAbort = () => {
+  messageListRef.value?.abort();
+};
+
 const handleSend = async () => {
   const question = inputMessage.value;
   const files = selectedFiles.value;
   if (!question.trim()) return;
+  if (isSubmitting.value) return; // 飞行中禁止重复发
   inputMessage.value = "";
   selectedFiles.value = [];
-  
-  await messageListRef.value?.send(
-    question,
-    useKnowledgeBase.value,
-    files,
-    route.params.id as string,
-  );
+  isSubmitting.value = true;
+
+  try {
+    await messageListRef.value?.send(
+      question,
+      useKnowledgeBase.value,
+      files,
+      route.params.id as string,
+    );
+  } finally {
+    isSubmitting.value = false;
+  }
 };
 
 const initChat = async (sessionId: string, isFirstMount: boolean) => {
@@ -65,6 +77,7 @@ const initChat = async (sessionId: string, isFirstMount: boolean) => {
     selectedFiles.value = fs;
 
     try {
+      isSubmitting.value = true;
       await messageListRef.value?.send(q, kb, fs, sessionId);
       chatStore.allSession.unshift({
         sessionId,
@@ -74,6 +87,8 @@ const initChat = async (sessionId: string, isFirstMount: boolean) => {
     } catch (error) {
       console.error("发送消息失败", error);
       toast.error("发送消息失败");
+    } finally {
+      isSubmitting.value = false;
     }
   }
 };
@@ -129,7 +144,9 @@ watch(
             v-model="inputMessage"
             v-model:useKnowledgeBase="useKnowledgeBase"
             v-model:files="selectedFiles"
+            :submitting="isSubmitting"
             @send="handleSend"
+            @abort="handleAbort"
           />
           <p class="mt-3 text-center text-xs text-muted-foreground/60">
             AI 生成的内容可能不准确或不当。

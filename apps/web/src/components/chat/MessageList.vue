@@ -12,6 +12,7 @@ import {
   Check,
   Search,
   AlertCircle,
+  ChevronDown,
 } from "lucide-vue-next";
 import { toast } from "vue-sonner";
 import { copyToClipboard } from "@/utils/clip";
@@ -498,102 +499,174 @@ defineExpose({ messages, send, loadHistory, abort });
 
 <template>
   <div ref="messagesContainer" class="flex-1 overflow-y-auto p-4 md:p-6">
-    <div class="mx-auto max-w-3xl space-y-6">
+    <div class="mx-auto max-w-3xl space-y-5 font-sans">
       <div
         v-for="(message, index) in messages"
         :key="index"
-        class="chat-message group flex gap-4"
+        class="chat-message group flex gap-3"
         :class="message.role === 'user' ? 'flex-row-reverse' : ''"
       >
         <div
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-medium"
+          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold ring-1 ring-border/60"
           :class="
             message.role === 'user'
               ? 'bg-primary text-primary-foreground'
-              : 'bg-muted'
+              : 'bg-secondary text-foreground'
           "
         >
           {{ message.role === "user" ? "你" : "AI" }}
         </div>
         <div
-          class="flex max-w-[80%] flex-col gap-3"
+          class="flex max-w-[80%] flex-col gap-2"
           :class="message.role === 'user' ? 'items-end' : 'items-start'"
         >
           <!-- Assistant: 加载占位符 + blocks 统一 v-for -->
           <template v-if="message.role === 'assistant'">
+            <!-- 加载占位符：仿 AgentPlanning header 的紧凑 badge -->
             <div
               v-if="!message.blocks || message.blocks.length === 0"
-              class="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+              class="inline-flex items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-2 text-sm shadow-sm"
             >
-              <Loader2 class="h-3 w-3 animate-spin" />
-              <span>mono 正在思考…</span>
+              <Loader2 class="h-3.5 w-3.5 animate-spin text-blue-600 dark:text-blue-400" />
+              <span class="font-medium text-foreground/80">mono 正在思考</span>
+              <span class="font-mono text-xs text-muted-foreground">…</span>
             </div>
             <template v-for="(block, bIdx) in message.blocks" :key="bIdx">
-              <!-- Think block -->
+              <!-- Think block：mono 标题 + 状态色圆点 + grid-rows 折叠动画 -->
               <div
                 v-if="block.type === 'think' && block.content"
                 class="w-full"
               >
-                <button
-                  @click="block.showThink = !block.showThink"
-                  class="text-xs text-muted-foreground hover:text-foreground mb-1 flex items-center gap-1"
-                >
-                  <Brain class="h-3 w-3" />
-                  <span>{{
-                    block.streaming ? "mono 思考中…" : "mono 思考过程"
-                  }}</span>
-                </button>
                 <div
-                  v-show="block.showThink"
-                  class="rounded-lg px-3 py-2 bg-muted/50 text-muted-foreground text-xs"
+                  class="flex items-center justify-between rounded-md px-2 py-1 transition-colors cursor-pointer select-none"
+                  :class="
+                    block.streaming
+                      ? 'bg-blue-500/5 hover:bg-blue-500/10'
+                      : 'hover:bg-secondary/60'
+                  "
+                  @click="block.showThink = !block.showThink"
                 >
-                  <MarkdownRenderer :content="block.typed || ''" />
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span
+                      class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ring-2 ring-card"
+                      :class="
+                        block.streaming
+                          ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400'
+                          : 'bg-secondary text-muted-foreground'
+                      "
+                    >
+                      <Loader2
+                        v-if="block.streaming"
+                        class="h-3 w-3 animate-spin"
+                      />
+                      <Brain v-else class="h-3 w-3" />
+                    </span>
+                    <span
+                      class="text-sm font-mono tracking-tight"
+                      :class="
+                        block.streaming
+                          ? 'text-blue-600 dark:text-blue-400 font-semibold'
+                          : 'text-foreground/80 font-medium'
+                      "
+                    >
+                      {{ block.streaming ? "thinking…" : "thought process" }}
+                    </span>
+                  </div>
+                  <ChevronDown
+                    class="h-4 w-4 text-muted-foreground/60 transition-transform duration-300"
+                    :class="block.showThink ? 'rotate-0' : '-rotate-90'"
+                  />
+                </div>
+                <div
+                  class="grid transition-all duration-400 ease-in-out"
+                  :class="
+                    block.showThink
+                      ? 'grid-rows-[1fr] opacity-100 mt-1.5'
+                      : 'grid-rows-[0fr] opacity-0 mt-0'
+                  "
+                >
+                  <div class="overflow-hidden">
+                    <div
+                      class="rounded-md border border-border/50 bg-secondary/30 px-3.5 py-2.5 text-sm text-muted-foreground font-mono leading-relaxed"
+                    >
+                      <MarkdownRenderer :content="block.typed || ''" />
+                    </div>
+                  </div>
                 </div>
               </div>
-              <!-- Answer block -->
+              <!-- Answer block：rounded-xl + card 风 -->
               <div
                 v-else-if="block.type === 'answer' && block.content"
-                class="rounded-2xl px-4 py-3 bg-muted"
+                class="rounded-xl border border-border/60 bg-card px-4 py-3 text-[15px] leading-relaxed text-foreground shadow-sm"
               >
                 <MarkdownRenderer :content="block.typed || ''" />
               </div>
-              <!-- Tool call pill + 可视化产物 -->
+              <!-- Tool call：仿 AgentPlanning step 卡片 -->
               <div
                 v-else-if="block.type === 'tool_call'"
-                class="flex flex-col items-start gap-2"
+                class="w-full rounded-lg border border-border/60 bg-card shadow-sm overflow-hidden"
               >
                 <div
-                  class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
+                  class="flex items-center justify-between px-3 py-2.5 transition-colors"
                   :class="
                     block.status === 'calling'
-                      ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      ? 'bg-blue-500/5'
+                      : 'bg-emerald-500/5'
                   "
                 >
-                  <Loader2
-                    v-if="block.status === 'calling'"
-                    class="h-3 w-3 animate-spin"
-                  />
-                  <Check v-else class="h-3 w-3" />
-                  <Search class="h-3 w-3 opacity-70" />
-                  <span class="font-medium">{{ block.name }}</span>
-                  <span v-if="block.args" class="opacity-70">
-                    {{ formatToolArgs(block.args) }}
-                  </span>
-                  <span v-if="block.status === 'calling'" class="opacity-70"
-                    >调用中…</span
+                  <div class="flex items-center gap-2.5 min-w-0">
+                    <span
+                      class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-2 ring-card"
+                      :class="
+                        block.status === 'calling'
+                          ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400'
+                          : 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                      "
+                    >
+                      <Loader2
+                        v-if="block.status === 'calling'"
+                        class="h-3.5 w-3.5 animate-spin"
+                      />
+                      <Check v-else class="h-3.5 w-3.5" />
+                    </span>
+                    <Search class="h-4 w-4 text-muted-foreground" />
+                    <span
+                      class="text-sm font-semibold tracking-tight"
+                      :class="
+                        block.status === 'calling'
+                          ? 'text-blue-600 dark:text-blue-400'
+                          : 'text-emerald-600 dark:text-emerald-400'
+                      "
+                    >
+                      {{ block.name }}
+                    </span>
+                    <span
+                      v-if="block.args"
+                      class="font-mono text-xs text-muted-foreground truncate max-w-[260px]"
+                    >
+                      {{ formatToolArgs(block.args) }}
+                    </span>
+                  </div>
+                  <span
+                    class="font-mono text-[11px] uppercase tracking-wider"
+                    :class="
+                      block.status === 'calling'
+                        ? 'text-blue-600/70 dark:text-blue-400/70'
+                        : 'text-emerald-600/70 dark:text-emerald-400/70'
+                    "
                   >
-                  <span v-else class="opacity-70">完成</span>
+                    {{ block.status === "calling" ? "running" : "done" }}
+                  </span>
                 </div>
                 <!-- code_sandbox 返回的图表/HTML/JSON -->
                 <div
                   v-if="block.result && block.result.length > 0"
-                  class="flex flex-col gap-2 w-full max-w-2xl"
+                  class="flex flex-col gap-2 p-3 border-t border-border/50 bg-secondary/20"
                 >
                   <div
                     v-for="(art, aIdx) in block.result"
                     :key="aIdx"
-                    class="rounded-lg border bg-card overflow-hidden"
+                    class="rounded-md border border-border/50 bg-card overflow-hidden"
                   >
                     <img
                       v-if="art.type === 'image/png' || art.type === 'image/svg+xml'"
@@ -621,56 +694,68 @@ defineExpose({ messages, send, loadHistory, abort });
                   </div>
                 </div>
               </div>
-              <!-- Error block: 独立气泡，不覆盖已显示内容 -->
+              <!-- Error block：rose 色调统一 + 紧凑 -->
               <div
                 v-else-if="block.type === 'error' && block.content"
-                class="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400"
+                class="flex items-start gap-2.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3.5 py-3 text-rose-700 dark:text-rose-400"
               >
-                <AlertCircle class="h-4 w-4 mt-0.5 shrink-0" />
-                <div class="flex-1">
+                <span
+                  class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-400 ring-2 ring-rose-500/10"
+                >
+                  <AlertCircle class="h-3.5 w-3.5" />
+                </span>
+                <div class="flex-1 text-sm font-mono leading-relaxed">
                   <MarkdownRenderer :content="block.typed || ''" />
                 </div>
               </div>
             </template>
           </template>
 
-          <!-- User: simple text bubble -->
+          <!-- User: 卡片化气泡 -->
           <div
             v-else
-            class="rounded-2xl px-4 py-3 bg-primary text-primary-foreground"
+            class="rounded-xl border border-primary/20 bg-primary px-4 py-3 text-primary-foreground shadow-sm"
           >
-            <p class="text-sm md:text-base leading-relaxed whitespace-pre-wrap">
+            <p class="text-[15px] leading-relaxed whitespace-pre-wrap">
               {{ message.content }}
             </p>
           </div>
 
+          <!-- 工具条：紧凑，hover 显示 -->
           <div
             v-if="message.role === 'assistant'"
-            class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+            class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <button
               @click="copyContent(message)"
               class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              title="复制"
             >
               <Copy class="h-3.5 w-3.5" />
             </button>
             <button
               class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              title="点赞"
             >
               <ThumbsUp class="h-3.5 w-3.5" />
             </button>
             <button
               class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              title="点踩"
             >
               <ThumbsDown class="h-3.5 w-3.5" />
             </button>
             <button
               class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              title="更多"
             >
               <MoreHorizontal class="h-3.5 w-3.5" />
             </button>
           </div>
-          <span v-if="message.timestamp" class="text-xs text-muted-foreground">
+          <span
+            v-if="message.timestamp"
+            class="font-mono text-xs text-muted-foreground tabular-nums"
+          >
             {{ message.timestamp }}
           </span>
         </div>
@@ -680,9 +765,11 @@ defineExpose({ messages, send, loadHistory, abort });
         v-if="messages.length === 0"
         class="flex h-[50vh] flex-col items-center justify-center text-center"
       >
-        <div class="space-y-3">
-          <p class="text-lg font-medium text-foreground">开始新对话</p>
-          <p class="text-sm text-muted-foreground">
+        <div class="space-y-2">
+          <p class="text-base font-semibold text-foreground tracking-tight">
+            开始新对话
+          </p>
+          <p class="text-xs text-muted-foreground">
             在上方输入框中输入您的消息开始对话
           </p>
         </div>
