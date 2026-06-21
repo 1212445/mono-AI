@@ -5,7 +5,12 @@ export class ChatSession {
   @PrimaryGeneratedColumn({ type: 'int', name: 'id' })
   id: number;
 
-  @Column('varchar', { name: 'sessionId', comment: '会话id', length: 255 })
+  @Column('varchar', {
+    name: 'sessionId',
+    comment: '会话id',
+    length: 255,
+    unique: true,
+  })
   sessionId: string;
 
   @Column('varchar', { name: 'title', comment: '会话标题', length: 20 })

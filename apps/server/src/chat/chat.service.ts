@@ -16,7 +16,7 @@ import {
 import { ChatHistoryService } from '../chat-history/chat-history.service';
 import { ChatSessionService } from '../chat-session/chat-session.service';
 import { ChatDto } from './dto/chat.dto';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 
 @Injectable()
 export class ChatService {
@@ -27,6 +27,7 @@ export class ChatService {
 
   async chat(
     chatDto: ChatDto,
+    req: Request,
     res: Response,
     files?: Express.Multer.File[],
   ): Promise<void> {
@@ -55,9 +56,7 @@ export class ChatService {
     } else {
       await this.chatSessionService.updated(currentSessionId, date, question);
     }
-    const historyRecords =
-      await this.chatHistoryService.getHistoryBySessionId(currentSessionId);
-    const history: ChatHistory[] = historyRecords.map((item) => ({
+    const history: ChatHistory[] = tt.data.map((item) => ({
       question: item.question,
       answer: item.answer,
     }));
@@ -65,13 +64,19 @@ export class ChatService {
     res.write(`data: ${JSON.stringify({ sessionId: currentSessionId })}\n\n`);
     let fullAnswer = '';
     let streamError: string | null = null;
+    let clientAborted = false;
+
+    const abortController = new AbortController();
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        abortController.abort();
+      }
+    });
 
     // 心跳：每 10s 写一行 SSE 注释，防代理/浏览器因长时间无数据掐连接
     const heartbeat = setInterval(() => {
-      try {
+      if (!abortController.signal.aborted) {
         res.write(': heartbeat\n\n');
-      } catch {
-        // 客户端已断，clearInterval 在 finally 里兜底
       }
     }, 10000);
 
@@ -90,8 +95,13 @@ export class ChatService {
           fileContext,
           context,
           images.length > 0 ? images : undefined,
+          abortController.signal,
         );
         for await (const ev of answer) {
+          if (abortController.signal.aborted) {
+            clientAborted = true;
+            break;
+          }
           if (ev.type === 'content') {
             fullAnswer += ev.delta;
             res.write(
@@ -107,7 +117,7 @@ export class ChatService {
             );
           } else if (ev.type === 'tool_result') {
             res.write(
-              `event: tool_result\ndata: ${JSON.stringify({ id: ev.id, name: ev.name })}\n\n`,
+              `event: tool_result\ndata: ${JSON.stringify({ id: ev.id, name: ev.name, artifact: ev.artifact })}\n\n`,
             );
           }
         }
@@ -118,8 +128,13 @@ export class ChatService {
           history,
           fileContext,
           images.length > 0 ? images : undefined,
+          abortController.signal,
         );
         for await (const ev of answer) {
+          if (abortController.signal.aborted) {
+            clientAborted = true;
+            break;
+          }
           if (ev.type === 'content') {
             fullAnswer += ev.delta;
             res.write(
@@ -136,24 +151,24 @@ export class ChatService {
             );
           } else if (ev.type === 'tool_result') {
             res.write(
-              `event: tool_result\ndata: ${JSON.stringify({ id: ev.id, name: ev.name })}\n\n`,
+              `event: tool_result\ndata: ${JSON.stringify({ id: ev.id, name: ev.name, artifact: ev.artifact })}\n\n`,
             );
           }
         }
       }
     } catch (err) {
-      streamError = err instanceof Error ? err.message : String(err);
-      console.error('[chat] stream error:', err);
-      try {
+      if (abortController.signal.aborted) {
+        // 客户端主动断开，不当作错误
+        clientAborted = true;
+      } else {
+        streamError = err instanceof Error ? err.message : String(err);
+        console.error('[chat] stream error:', err);
         res.write(
           `event: error\ndata: ${JSON.stringify({ message: streamError })}\n\n`,
         );
-      } catch {
-        // 客户端也断了，不必再发
       }
     } finally {
-      clearInterval(heartbeat);
-      if (!streamError) {
+      if (!streamError && !clientAborted) {
         await this.chatHistoryService.saveChat(
           currentSessionId,
           question,
@@ -161,12 +176,9 @@ export class ChatService {
           modeNumber,
           date,
         );
-      }
-      try {
         res.write('data: [DONE]\n\n');
-      } catch {
-        // 客户端已断，无需再发
       }
+      clearInterval(heartbeat);
       res.end();
     }
   }

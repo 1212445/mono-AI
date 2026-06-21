@@ -48,9 +48,9 @@ export async function vectorStore(
  * 清空集合
  * @param collectionName 集合名
  */
-export async function dropCollection(collectionName: string = "mono_docs") {
+export async function dropCollection() {
   const client = new MilvusClient({ address: `${process.env.milvus_url}` });
-  await client.dropCollection({ collection_name: collectionName });
+  await client.dropCollection({ collection_name: `${process.env.milvus_collectionName}` });
   await client.closeConnection();
 }
 

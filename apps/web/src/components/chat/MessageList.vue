@@ -15,6 +15,13 @@ import { toast } from "vue-sonner";
 import { copyToClipboard } from "@/utils/clip";
 import server from "@/utils/axios.config";
 
+type CodeArtifact = {
+  type: "image/png" | "image/svg+xml" | "text/html" | "application/json";
+  index: number;
+  data: string; //image: base64（无前缀）；html/json: 原始字符串
+  truncated: boolean;
+};
+
 type Block =
   | {
       type: "think";
@@ -30,6 +37,7 @@ type Block =
       name: string; //工具名（如搜索）
       args?: Record<string, unknown>; //工具参数
       status: "calling" | "done"; //调用状态
+      result?: CodeArtifact[]; //工具返回的可视化产物（code_sandbox 用）
     };
 
 type Message = {
@@ -284,6 +292,9 @@ const sendMessage = async (
         const block = msg.blocks[i];
         if (block.type === "tool_call" && block.id === parsed.id) {
           block.status = "done";
+          if (Array.isArray(parsed.artifact)) {
+            block.result = parsed.artifact as CodeArtifact[];
+          }
           break;
         }
       }
@@ -507,30 +518,69 @@ defineExpose({ messages, send, loadHistory });
               >
                 <MarkdownRenderer :content="block.typed || ''" />
               </div>
-              <!-- Tool call pill -->
+              <!-- Tool call pill + 可视化产物 -->
               <div
                 v-else-if="block.type === 'tool_call'"
-                class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
-                :class="
-                  block.status === 'calling'
-                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                    : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                "
+                class="flex flex-col items-start gap-2"
               >
-                <Loader2
-                  v-if="block.status === 'calling'"
-                  class="h-3 w-3 animate-spin"
-                />
-                <Check v-else class="h-3 w-3" />
-                <Search class="h-3 w-3 opacity-70" />
-                <span class="font-medium">{{ block.name }}</span>
-                <span v-if="block.args" class="opacity-70">
-                  {{ formatToolArgs(block.args) }}
-                </span>
-                <span v-if="block.status === 'calling'" class="opacity-70"
-                  >调用中…</span
+                <div
+                  class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
+                  :class="
+                    block.status === 'calling'
+                      ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  "
                 >
-                <span v-else class="opacity-70">完成</span>
+                  <Loader2
+                    v-if="block.status === 'calling'"
+                    class="h-3 w-3 animate-spin"
+                  />
+                  <Check v-else class="h-3 w-3" />
+                  <Search class="h-3 w-3 opacity-70" />
+                  <span class="font-medium">{{ block.name }}</span>
+                  <span v-if="block.args" class="opacity-70">
+                    {{ formatToolArgs(block.args) }}
+                  </span>
+                  <span v-if="block.status === 'calling'" class="opacity-70"
+                    >调用中…</span
+                  >
+                  <span v-else class="opacity-70">完成</span>
+                </div>
+                <!-- code_sandbox 返回的图表/HTML/JSON -->
+                <div
+                  v-if="block.result && block.result.length > 0"
+                  class="flex flex-col gap-2 w-full max-w-2xl"
+                >
+                  <div
+                    v-for="(art, aIdx) in block.result"
+                    :key="aIdx"
+                    class="rounded-lg border bg-card overflow-hidden"
+                  >
+                    <img
+                      v-if="art.type === 'image/png' || art.type === 'image/svg+xml'"
+                      :src="`data:${art.type};base64,${art.data}`"
+                      :alt="`${art.type} output`"
+                      class="w-full h-auto block"
+                    />
+                    <iframe
+                      v-else-if="art.type === 'text/html'"
+                      :srcdoc="art.data"
+                      sandbox="allow-scripts allow-popups allow-forms"
+                      referrerpolicy="no-referrer"
+                      class="w-full min-h-[200px] max-h-[480px] border-0 bg-white"
+                    />
+                    <pre
+                      v-else-if="art.type === 'application/json'"
+                      class="p-3 text-xs overflow-x-auto font-mono whitespace-pre-wrap break-all"
+                    ><code>{{ art.data }}</code></pre>
+                    <div
+                      v-if="art.truncated"
+                      class="px-3 py-1 text-xs text-amber-700 bg-amber-50 border-t"
+                    >
+                      输出过大，已截断
+                    </div>
+                  </div>
+                </div>
               </div>
             </template>
           </template>

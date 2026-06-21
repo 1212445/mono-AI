@@ -11,6 +11,7 @@ import { buildUserMessage, parseAgentStream } from "./common.chat.js";
  * @param fileContext 用户上传的文件内容
  * @param context 检索得到的资料片段
  * @param images 用户上传的图片（data URL 列表），挂到最后一轮 user 消息
+ * @param signal AbortSignal，外部中断时立即停止 LLM 推理
  * @returns 流式 ChatStreamEvent（content / reasoning / tool_call / tool_result）
  */
 export async function* ragChat(
@@ -20,6 +21,7 @@ export async function* ragChat(
   fileContext: string,
   context: string[],
   images?: string[],
+  signal?: AbortSignal,
 ) {
   const { summaryBlock, recentHistory } = await manageContext(
     sessionId,
@@ -47,6 +49,9 @@ export async function* ragChat(
     buildUserMessage(input, images),
   ];
 
-  const stream = await agent().stream({ messages }, { streamMode: "messages" });
+  const stream = await agent().stream(
+    { messages },
+    signal ? { streamMode: "messages", signal } : { streamMode: "messages" },
+  );
   yield* parseAgentStream(stream);
 }

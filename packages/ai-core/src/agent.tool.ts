@@ -63,9 +63,7 @@ export const searchTool = tool(
   },
 );
 
-// 代码沙盒工具
 type Lang = "python" | "javascript" | "typescript" | "bash" | "r" | "java";
-
 // e2b 的 createCodeContext 只对部分语言有意义，bash/typescript 走默认 context
 const CONTEXT_SUPPORTED: ReadonlySet<Lang> = new Set([
   "python",
@@ -88,14 +86,14 @@ interface CodeArtifact {
   truncated: boolean;
 }
 
-const TIMEOUT_MS = 5 * 60 * 1000;
-const MAX_OUTPUT_CHARS = 20_000;
-const MAX_ARTIFACT_CHARS = 200_000;
-const MAX_PNG_CHARS = 1_500_000;
-const SANDBOX_REFRESH_MS = 30 * 60 * 1000;
+const TIMEOUT_MS = 90 * 1000; // 单次执行 90s 超时（E2B 按运行时长计费，chat 场景 90s 覆盖 95% 用例）
+const MAX_OUTPUT_CHARS = 20_000; // stdout/stderr 截断阈值
+const MAX_ARTIFACT_CHARS = 200_000; // SVG/HTML 上限
+const MAX_PNG_CHARS = 1_500_000; // PNG 上限（base64 后约 1.5MB）
+const SANDBOX_REFRESH_MS = 30 * 60 * 1000; // 沙盒 30 分钟自动重建
 
-let _state: SandboxState | null = null;
-let _creating: Promise<SandboxState> | null = null;
+let _state: SandboxState | null = null; // 当前沙盒状态
+let _creating: Promise<SandboxState> | null = null; // 正在创建的沙盒 Promise
 
 async function getState(): Promise<SandboxState> {
   if (_state) {
@@ -224,16 +222,30 @@ function summarizeArtifacts(artifacts: CodeArtifact[]): string {
   return `（已生成 ${artifacts.length} 个产出物：${summary}，已附在 artifact 字段，前端可直接渲染）`;
 }
 
+/**
+ * E2B 的 runCode 把 language 和 context 设为互斥重载：
+ * 有 context 时不能再传 language，否则后端报
+ * "You can provide context or language, but not both"。
+ */
+export function buildRunCodeOpts(
+  language: Lang,
+  context: Context | undefined,
+  timeoutMs: number,
+) {
+  return context
+    ? { context, timeoutMs }
+    : { language, timeoutMs };
+}
+
 export const codeTool = tool(
   async ({ language, code }) => {
     let state = await getState();
     try {
       const context = await getOrCreateContext(state, language);
-      const execution = await state.sb.runCode(code, {
-        language,
-        ...(context ? { context } : {}),
-        timeoutMs: TIMEOUT_MS,
-      });
+      const execution = await state.sb.runCode(
+        code,
+        buildRunCodeOpts(language, context, TIMEOUT_MS),
+      );
 
       const stdout = truncate(
         (execution.logs?.stdout ?? []).join(""),
@@ -271,6 +283,7 @@ export const codeTool = tool(
       "适用场景：算法题求解、数学计算、数据分析、运行代码验证想法、" +
       "以及任何需要真实执行而非推理的编程问题。" +
       "代码片段必须自包含、可独立运行（同一语言跨调用会保留变量，跨语言互不污染）。" +
+      "应保持单步、简洁（建议 < 50 行）；如需多步处理，请分多次调用，每次聚焦一个子任务。" +
       "图表/HTML/JSON 等产出物通过 artifact 字段返回给前端渲染。",
     schema: z.object({
       language: z

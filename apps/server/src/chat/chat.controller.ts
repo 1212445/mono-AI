@@ -4,6 +4,7 @@ import {
   Post,
   Get,
   Param,
+  Req,
   UseInterceptors,
   UploadedFiles,
   Header,
@@ -12,7 +13,7 @@ import {
 import { ChatService } from './chat.service';
 import { ChatDto } from './dto/chat.dto';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { memoryStorage } from 'multer';
 
 @Controller('chat')
@@ -31,10 +32,11 @@ export class ChatController {
   async chat(
     @Body() chatDto: ChatDto,
     @UploadedFiles() content: { files: Express.Multer.File[] },
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     const { files } = content;
-    return this.chatService.chat(chatDto, res, files);
+    return this.chatService.chat(chatDto, req, res, files);
   }
 
   @Get('findAll')

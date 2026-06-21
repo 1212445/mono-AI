@@ -34,13 +34,4 @@ export class ChatHistoryService {
       order: { createdTime: 'ASC' },
     });
   }
-
-  async getAllSessionId(): Promise<string[]> {
-    const result = await this.chatHistoryRepository
-      .createQueryBuilder('chatHistory')
-      .select('DISTINCT chatHistory.sessionId', 'sessionId')
-      .orderBy('chatHistory.createdTime', 'DESC')
-      .getRawMany<{ sessionId: string }>();
-    return result.map((item) => item.sessionId);
-  }
 }

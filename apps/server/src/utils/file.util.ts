@@ -24,10 +24,6 @@ export function toImageDataUrl(file: Express.Multer.File): string {
       `图片 ${file.originalname} 超过 5MB 限制（当前 ${(file.size / 1024 / 1024).toFixed(2)}MB）`,
     );
   }
-  const ext = extname(file.originalname).toLowerCase().slice(1);
-  const mime =
-    IMAGE_MIMES[file.mimetype] ??
-    (ext === 'jpg' ? 'jpeg' : (ext as 'jpeg' | 'png' | 'webp' | 'gif'));
   return `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
 }
 
