@@ -1,16 +1,16 @@
 # RAG 智能对话系统
 
-基于检索增强生成（RAG）技术的智能对话系统，支持多轮对话、知识库管理、多格式文档检索、流式回答与 Agent 网络检索。
+基于检索增强生成（RAG）技术的智能对话系统，支持多轮对话、知识库管理、多格式文档检索、流式回答、Agent 网络检索、代码沙盒执行与图片理解。
 
 ## 功能特性
 
 - 🧠 **多轮对话** — 基于 SessionId 的上下文记忆，支持普通对话与 RAG 增强两种模式
 - 📚 **知识库管理** — 上传 PDF / CSV / JSON / Markdown 等文档，经嵌入后存入 Milvus 向量库
 - 🔍 **语义检索** — 基于 Milvus 的相似度检索 + 可选 Rerank 重排序
-- 💬 **流式输出** — 后端通过 SSE（Server-Sent Events）逐 chunk 推送
-- 🤖 **Agent 模式** — 集成 Tavily 网络检索，模型可按需调用工具
-- 📎 **会话级文件** — 对话中上传文件（最多 5 个），自动抽取文本作为上下文
-- 🕘 **历史回溯** — MySQL 持久化聊天记录，按 SessionId 查询
+- 💬 **流式输出** — 后端通过 SSE（Server-Sent Events）逐 chunk 推送，附带心跳保活与错误气泡
+- 🤖 **Agent 模式** — 模型按需调用工具：Tavily 联网搜索、E2B 代码沙盒（python / js / ts / bash / r / java），沙盒产物（PNG / SVG / HTML / JSON）回传到前端独立渲染
+- 📎 **会话级文件** — 对话中上传文件（最多 5 个），图片走多模态理解、其他格式自动抽取文本作为上下文
+- 🕘 **历史回溯** — MySQL 持久化聊天记录与会话元数据，按 SessionId 查询
 
 ## 技术栈
 
@@ -33,7 +33,8 @@
 - 向量库：`@zilliz/milvus2-sdk-node`（Milvus 2.x SDK）
 - 文档处理：`pdf-parse` + LangChain `textsplitters`
 - 校验：`zod`
-- 默认 LLM 走 **MiniMax** 兼容协议（也支持 OpenAI / Ollama）
+- 代码沙盒：`@e2b/code-interpreter`（隔离执行 + 30 分钟自动重建）
+- 默认 LLM 走 **MiniMax** 兼容协议（也支持 OpenAI / Ollama），支持多模态图片输入
 
 ### 基础设施
 - MySQL（端口 3309）— 聊天历史、文件管理
@@ -49,6 +50,7 @@ rag/
 │   │   └── src/
 │   │       ├── chat/            # 对话模块（SSE 流式）
 │   │       ├── chat-history/    # 聊天历史持久化
+│   │       ├── chat-session/    # 会话元数据（侧边栏列表）
 │   │       ├── file-management/ # 知识库文件管理
 │   │       ├── entities/        # TypeORM 实体
 │   │       ├── upload/          # 上传文件存储目录
@@ -59,7 +61,7 @@ rag/
 │           │   ├── home/        # 首页
 │           │   ├── chat/        # 对话页（流式渲染）
 │           │   └── kb/          # 知识库管理
-│           ├── components/      # 通用组件
+│           ├── components/      # 通用组件（含 ink-reveal / magnetic-text / typewriter / cascade-text 等自研动画组件）
 │           ├── store/           # Pinia 状态
 │           └── router/          # 路由（hash 模式）
 └── packages/
@@ -101,9 +103,9 @@ cd packages/docker/milvus && docker compose up -d
 在 `apps/server/.env`（**需自建**，已在 `.gitignore` 中）：
 
 ```env 示例
-# MySQL
+# MySQL（端口默认 3309，按 docker-compose 实际配置修改）
 db_host=localhost
-db_port=3306
+db_port=3309
 db_user=root
 db_password=123456
 db_database=rag
@@ -121,8 +123,11 @@ RERANK_API_KEY=your-rerank-key
 RERANK_URL=https://your-rerank-endpoint
 RERANK_MODEL=your-rerank-model
 
-# Tavily 网络检索（Agent 模式需要）
+# Tavily 网络检索（Agent 联网搜索工具）
 tavily_api=your-tavily-key
+
+# E2B 代码沙盒（Agent 代码执行工具，SDK 自动从环境变量读取）
+E2B_API_KEY=your-e2b-key
 
 # Web CORS
 web_origin=http://localhost:5173
@@ -149,7 +154,6 @@ cd apps/web && pnpm run dev
 访问：
 - 前端：http://localhost:5173
 - 后端：http://localhost:3000
-```
 
 ### ai-core 预构建
 
@@ -163,8 +167,9 @@ cd packages/ai-core && pnpm run build
 
 - **新增 TypeORM 实体**：在 `src/entities/` 创建类，然后在 `app.module.ts` 的 `entities: []` 数组挂上。`synchronize: true` 会自动建表。
 - **新增模块**：标准 NestJS 模式，在 `app.module.ts` 的 `imports: []` 注册。
-- **复用 ai-core 能力**：`apps/server` 通过 `import { model, embedding, retrieveDocuments, ragChat, chat, ... } from '@rag/ai-core'` 引入，禁止在后端直接拼装 LangChain。
+- **复用 ai-core 能力**：`apps/server` 通过 `import { model, embedding, retrieveDocuments, ragChat, chat, agent, ... } from '@rag/ai-core'` 引入，禁止在后端直接拼装 LangChain。
 - **前端样式**：统一使用 Tailwind v4 原子类 + `cn()`（`clsx` + `tailwind-merge`）合并。
+- **XSS 防护**：所有用户 / LLM 文本走 markdown-it 渲染时启用严格白名单；沙盒 artifact 走独立渲染通道，不与 markdown 管道混用。
 
 ## 许可证
 
