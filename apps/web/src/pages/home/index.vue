@@ -10,7 +10,7 @@ import { Sparkles, Building2, FileText, PanelLeft } from "lucide-vue-next";
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 import ChatInput from "@/components/input/index.vue";
-import MagneticText from "@/components/magnetic-text/index.vue";
+import CascadeText from "@/components/cascade-text/index.vue";
 import Typewriter from "@/components/typewriter/index.vue";
 import InkReveal from "@/components/ink-reveal/index.vue";
 import { useChatStore } from "@/store";
@@ -93,19 +93,16 @@ const handleCardClick = (description: string) => {
             class="absolute inset-0 h-full w-full object-cover"
             aria-hidden="true"
           />
-          <InkReveal :mask-color="[250, 250, 250]" />
+          <InkReveal :mask-color="[255, 255, 255]" />
         </div>
         <div class="w-full max-w-5xl space-y-10">
           <div class="text-center space-y-5">
             <h1
               class="text-4xl md:text-5xl lg:text-6xl font-semibold tracking-tight text-foreground select-none"
             >
-              <MagneticText text="欢迎使用" :circle-size="220" />
+              <CascadeText text="欢迎使用" />
               <span class="block mt-2">
-                <MagneticText
-                  text="Mono 你的专属个人知识管家"
-                  :circle-size="220"
-                />
+                <CascadeText text="Mono 你的专属个人知识管家" />
               </span>
             </h1>
             <p

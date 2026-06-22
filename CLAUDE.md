@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-基于检索增强生成（RAG）技术的智能对话系统，pnpm monorepo 架构，支持知识库管理与多轮对话。
+基于检索增强生成（RAG）技术的智能对话系统，pnpm monorepo 架构，支持知识库管理、多轮对话、图片理解与 Agent 工具调用（联网搜索 / 代码沙盒）。
 
 ## 常用命令
 
@@ -62,7 +62,12 @@ packages/
 - **FileManagementModule** — 实体 `FileManagement`，管理上传文件。
 - TypeORM `synchronize: true`，启动会自动建表；新增实体后只需在 `app.module.ts` 的 `entities: []` 数组里挂上。
 
-ChatService 编排：解析 mode → 若有 files 用 `utils/file.util.extractFileContent` 抽文本拼入 fileContext → 拉历史 → 调 `model()` / `embedding()` / `retrieveDocuments()` / `ragChat()` / `chat()` 之一 → 逐 chunk 写 SSE → 保存历史 → `data: [DONE]` 结束。
+ChatService 编排：解析 mode → 若有 files 按 `isImageFile` 走 `toImageDataUrl` 进 `images[]`，否则用 `utils/file.util.extractFileContent` 抽文本拼入 fileContext → 拉历史 → 调 `model()` / `embedding()` / `retrieveDocuments()` / `ragChat()` / `chat()` 之一 → 逐 chunk 写 SSE → 保存历史 → `data: [DONE]` 结束。
+
+SSE 可靠性：
+- 每 10s 写一次 `: heartbeat` 注释行，防止代理/浏览器因长时无数据掐连接。
+- `req.on('close')` 触发 `AbortController.abort()`，中断上游 LLM 流。
+- 流式错误时只追加错误气泡，不覆盖已发送的内容（用户能看到部分结果 + 错误原因）。
 
 ### AI 核心 `packages/ai-core`（LangChain）
 
@@ -72,7 +77,10 @@ ESM 包，入口 `src/index.ts` 导出：
 - `model` / `embedding` — LLM 与 embedding 工厂
 - `ragChat` / `chat` — RAG 流式问答与普通流式问答
 - `rerankDocuments` — 重排序
-- `agent` — Agent 模式（内部通过 `agent.tool.ts` 注入工具，如 Tavily 搜索）
+- `agent` — Agent 模式（内部通过 `agent.tool.ts` 注入工具）
+- 工具（`agent.tool.ts`）：
+  - `searchTool` — 基于 Tavily 的联网搜索
+  - `codeTool` — 基于 `@e2b/code-interpreter` 的隔离代码沙盒（python/js/ts/bash/r/java），返回 `content_and_artifact`（stdout/文本进 LLM，PNG/SVG/HTML/JSON 进前端渲染）。30 分钟自动重建，`disposeCodeTool()` 由 NestJS 关闭时调用释放资源。
 - 类型 `ChatHistory` / `ManagedContext`（来自 `memory.ts`）
 
 约定：**`pnpm run build` 之前改 ai-core 不会被 server 看到**。server 通过 `workspace:*` 引用编译产物 `dist/`。
@@ -83,13 +91,21 @@ ESM 包，入口 `src/index.ts` 导出：
 
 技术栈：Vue 3.5 + Vite 8 + TS 5.9、Tailwind v4（`@tailwindcss/vite`）、`reka-ui`（Shadcn Vue 底层 primitives）+ `class-variance-authority` + `tailwind-merge` + `clsx`、Pinia、vue-router、markdown-it + highlight.js、vue-sonner（toast）、`@tanstack/vue-table`、`axios`、`lucide-vue-next`、`@vueuse/core`。
 
+自研组件（`apps/web/src/components/`）：
+- `ink-reveal/` — 水墨遮罩动画（home 页 hero 背景）
+- `magnetic-text/` / `cascade-text/` / `typewriter/` — 标题排版动画（鼠标悬停字符波动、按字位逐字上滑、打字机）
+- `chat/MessageList.vue` — SSE 流式渲染、错误气泡、工具调用展示、代码块复制、artifact 渲染（沙盒产出的 PNG/SVG/HTML/JSON）
+
+XSS 防护：所有用户/LLM 文本走 markdown-it 渲染时启用严格白名单；沙盒 artifact 走独立渲染通道，不与 markdown 管道混用。
+
 ## 环境配置
 
 `apps/server/.env`（必须自建，git 忽略）实际读取的变量（见 `main.ts` / `app.module.ts`）：
 - `db_host` / `db_port` / `db_user` / `db_password` / `db_database` — MySQL
 - `milvus_url` / `milvus_collectionName` — Milvus
 - `MINIMAX_API_KEY` / `MINIMAX_GROUP_ID` — LLM（**MiniMax**，非 OpenAI）
-- `tavily_api` — Tavily 网络检索（Agent 用）
+- `tavily_api` — Tavily 网络检索（Agent `searchTool` 用）
+- `E2B_API_KEY` — E2B 代码沙盒（Agent `codeTool` 用，SDK 自动从环境变量读取）
 - `RERANK_API_KEY` / `RERANK_URL` / `RERANK_MODEL` — 重排序
 - `web_origin` — CORS 允许源
 - `PORT` — 服务端口（默认 3000）
