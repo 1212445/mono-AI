@@ -11,7 +11,7 @@ import { agent } from "./agent.model.js";
 
 export type ChatStreamEvent =
   | { type: "content"; delta: string }
-  | { type: "reasoning"; delta: string }
+  | { type: "think"; delta: string }
   | {
       type: "tool_call";
       id: string;
@@ -95,7 +95,7 @@ export function recordToolCall(
 
 /**
  * 把 agent 的流式消息流解析成统一的 ChatStreamEvent。
- * 处理 tool_call args 累积、<think> reasoning 切分、tool_result 通知。
+ * 处理 tool_call args 累积、<think> think 切分、tool_result 通知。
  * chat() 和 ragChat() 共用。
  */
 export async function* parseAgentStream(
@@ -108,21 +108,21 @@ export async function* parseAgentStream(
   let pending = "";
   let inThink = false;
 
-  // 将content切割为content和reasoning两部分
+  // 将content切割为content和think两部分
   function* flushPending(): Generator<ChatStreamEvent, void, void> {
     while (pending.length > 0) {
       if (inThink) {
         const idx = pending.indexOf(CLOSE);
         if (idx >= 0) {
           if (idx > 0)
-            yield { type: "reasoning", delta: pending.slice(0, idx) };
+            yield { type: "think", delta: pending.slice(0, idx) };
           pending = pending.slice(idx + CLOSE.length);
           inThink = false;
           continue;
         }
         if (pending.length > CLOSE.length) {
           const safe = pending.length - CLOSE.length;
-          yield { type: "reasoning", delta: pending.slice(0, safe) };
+          yield { type: "think", delta: pending.slice(0, safe) };
           pending = pending.slice(safe);
         }
         return;
@@ -197,7 +197,7 @@ export async function* parseAgentStream(
   // 流结束兜底：把滞留的尾巴按当前模式一次性 yield
   if (pending.length > 0 && pending.trim() !== "") {
     yield inThink
-      ? { type: "reasoning", delta: pending }
+      ? { type: "think", delta: pending }
       : { type: "content", delta: pending };
   }
 }

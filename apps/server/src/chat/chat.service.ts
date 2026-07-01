@@ -107,9 +107,9 @@ export class ChatService {
             res.write(
               `event: content\ndata: ${JSON.stringify({ content: ev.delta })}\n\n`,
             );
-          } else if (ev.type === 'reasoning') {
+          } else if (ev.type === 'think') {
             res.write(
-              `event: reasoning\ndata: ${JSON.stringify({ delta: ev.delta })}\n\n`,
+              `event: think\ndata: ${JSON.stringify({ delta: ev.delta })}\n\n`,
             );
           } else if (ev.type === 'tool_call') {
             res.write(
@@ -140,9 +140,9 @@ export class ChatService {
             res.write(
               `event: content\ndata: ${JSON.stringify({ content: ev.delta })}\n\n`,
             );
-          } else if (ev.type === 'reasoning') {
+          } else if (ev.type === 'think') {
             res.write(
-              `event: reasoning\ndata: ${JSON.stringify({ delta: ev.delta })}\n\n`,
+              `event: think\ndata: ${JSON.stringify({ delta: ev.delta })}\n\n`,
             );
           } else if (ev.type === 'tool_call') {
             res.write(

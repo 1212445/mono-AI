@@ -162,12 +162,13 @@ function formatError(err: Execution["error"]): string {
   return e.traceback ? `${head}\n${e.traceback}` : head;
 }
 
-function extractArtifacts(results: Result[] | undefined): CodeArtifact[] {
+export function extractArtifacts(results: Result[] | undefined): CodeArtifact[] {
   if (!results || results.length === 0) return [];
   const out: CodeArtifact[] = [];
   results.forEach((r, i) => {
-    const rAny = r as unknown as { formats?: string[] };
-    const formats = rAny.formats ?? [];
+    // Result.formats 在 E2B SDK 里是方法 `formats(): string[]`，
+    // 不是属性。这里按 SDK 真实类型调用，不要再用 `as unknown` 强行覆盖类型。
+    const formats = r.formats();
     for (const fmt of formats) {
       if (fmt === "png" && r.png) {
         const truncated = r.png.length > MAX_PNG_CHARS;
@@ -267,10 +268,15 @@ export const codeTool = tool(
       if (error) parts.push(`[错误] ${error}`);
       const content = parts.length > 0 ? parts.join("\n") : "(无输出)";
 
-      // content_and_artifact：content 进 LLM，artifact 进前端
-      return { content, artifact: artifacts };
+      // content_and_artifact：必须返回 [content, artifact] 元组
+      // 返回对象会被 LangChain 抛 "output was not a two-tuple"，导致
+      // 整个返回值被 stringify 塞进 content 错误信息、artifact 始终 undefined。
+      return [content, artifacts];
     } catch (err) {
-      // 沙盒级故障：API key 错 / 网络断 / sandbox 死掉，标记下次重建
+      // 沙盒级故障：API key 错 / 网络断 / sandbox 死掉。
+      // 必须 kill 再清状态，否则 _state=null 只是丢本地引用，
+      // 沙盒在 E2B 那边还活着 → 每次重试泄漏一个 → 撞 20 实例并发上限。
+      await safeKill(state);
       _state = null;
       const message = err instanceof Error ? err.message : String(err);
       return `[沙盒执行失败] ${message}`;

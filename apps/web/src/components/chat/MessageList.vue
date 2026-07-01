@@ -305,7 +305,7 @@ const sendMessage = async (
       appendToBlock(messageIndex, "answer", parsed.content);
       armWatchdog();
       if (!isTyping.value) startTyping(messageIndex);
-    } else if (eventName === "reasoning" && parsed.delta) {
+    } else if (eventName === "think" && parsed.delta) {
       appendToBlock(messageIndex, "think", parsed.delta);
       armWatchdog();
       if (!isTyping.value) startTyping(messageIndex);

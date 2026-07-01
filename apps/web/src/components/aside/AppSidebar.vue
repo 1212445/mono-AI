@@ -19,13 +19,44 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { useChatStore } from "@/store";
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
+import server from "@/utils/axios.config";
+import { toast } from "vue-sonner";
 
 const chatStore = useChatStore();
 
 const props = withDefaults(defineProps<SidebarProps>(), {
   collapsible: "icon",
 });
+
+/**
+ * 拉取历史会话列表。
+ * - 仅当 store 为空时才拉一次，避免与 router.beforeEach 的 /chat/* 刷新重复请求
+ * - home / kb 路由下 router 守卫不会触发，这里兜底，让侧边栏在落地时就有数据
+ */
+const fetchSessions = async () => {
+  if (chatStore.allSession.length > 0) return;
+  try {
+    const res = await server.get("/chat/findAll");
+    chatStore.allSession = res.data.data.map(
+      (item: {
+        id: number;
+        sessionId: string;
+        title: string;
+        lastActiveTime: string;
+      }) => ({
+        sessionId: item.sessionId,
+        title: item.title,
+        lastActiveTime: item.lastActiveTime,
+      }),
+    );
+  } catch (err) {
+    console.error("加载历史会话失败", err);
+    toast.error("加载历史会话失败");
+  }
+};
+
+onMounted(fetchSessions);
 
 const teams = [
   {

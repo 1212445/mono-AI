@@ -12,7 +12,7 @@ import { buildUserMessage, parseAgentStream } from "./common.chat.js";
  * @param context 检索得到的资料片段
  * @param images 用户上传的图片（data URL 列表），挂到最后一轮 user 消息
  * @param signal AbortSignal，外部中断时立即停止 LLM 推理
- * @returns 流式 ChatStreamEvent（content / reasoning / tool_call / tool_result）
+ * @returns 流式 ChatStreamEvent（content / think / tool_call / tool_result）
  */
 export async function* ragChat(
   sessionId: string,
